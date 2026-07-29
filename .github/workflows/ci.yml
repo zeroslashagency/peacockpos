@@ -66,8 +66,10 @@ jobs:
       - name: parity harness
         run: ./scripts/run_parity.sh
 
-# cargo fmt is NOT gated here yet: `cargo fmt --check` currently reports diffs in
-# peacock-parity/src/main.rs. Reformat that file in its own commit, then add:
+# cargo fmt is NOT gated here yet: `cargo fmt --check` currently reports 69 diffs
+# across 8 files — every module in peacock-core except error.rs, ids.rs, model.rs
+# and ports.rs, plus peacock-parity/src/main.rs. Run `cargo fmt --all` as its own
+# commit touching nothing else, then add:
 #
 #   - name: cargo fmt --check
 #     run: cargo fmt --all --check

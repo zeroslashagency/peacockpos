@@ -19,7 +19,7 @@ echo
 # 2. Rust peacock-core tests
 echo "→ Running peacock-core unit tests..."
 cargo test -p peacock-core --quiet
-echo "✓ peacock-core tests passed (132 tests)"
+echo "✓ peacock-core tests passed"
 echo
 
 # 3. Parity check

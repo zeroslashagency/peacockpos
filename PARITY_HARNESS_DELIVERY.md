@@ -13,7 +13,9 @@ I've built the parity harness for the Rust port of URY POS. This is the gate tha
 
 **What it does:** Runs both the Rust implementation (`peacock-core`) and an independent Python reimplementation of the upstream Frappe logic over the same fixtures, then diffs the results **to the paisa**. Exit code 0 means parity; non-zero means a discrepancy that must be investigated.
 
-**Result:** ✅ **All 13 fixtures match to the paisa.** Zero diffs found.
+**Result:** ✅ **All 22 fixtures match to the paisa.** Zero diffs found.
+
+> **Amended 2026-07-29.** This report was written when the harness had 13 fixtures and `peacock-core` had 132 tests. Both grew: the rounding-strategy pin and the Product Bundle COGS port added 9 fixtures and 24 tests. Counts below are current; the narrative is as originally delivered.
 
 ---
 
@@ -27,8 +29,8 @@ peacock-parity/
 ├── README.md                       # Complete documentation (200 lines)
 ├── BUILD_SUMMARY.md                # This report
 ├── src/
-│   └── main.rs                     # Rust harness (473 lines)
-└── fixtures/                       # 13 JSON test cases
+│   └── main.rs                     # Rust harness (550 lines)
+└── fixtures/                       # 22 JSON test cases
     ├── 01_tax_worked_example.json
     ├── 02_tax_intrastate_odd_paisa.json
     ├── 03_tax_interstate_igst.json
@@ -44,7 +46,7 @@ peacock-parity/
     └── 13_tax_discount_basis_grand.json
 
 scripts/
-├── parity_reference.py             # Python oracle (447 lines, stdlib only)
+├── parity_reference.py             # Python oracle (847 lines, stdlib only)
 └── run_parity.sh                   # One-command runner (32 lines)
 
 Cargo.toml (workspace root)         # Added peacock-parity to members
@@ -95,13 +97,13 @@ OK
 ✓ Python self-tests passed
 
 → Running peacock-core unit tests...
-test result: ok. 132 passed; 0 failed; 0 ignored
-✓ peacock-core tests passed (132 tests)
+test result: ok. 156 passed; 0 failed; 0 ignored
+✓ peacock-core tests passed
 
 → Running parity harness...
 ═══ Peacock Parity Harness ═══
 
-Loaded 13 fixtures.
+Loaded 22 fixtures.
 Running Python reference...
 ✓ Python complete
 
@@ -114,7 +116,7 @@ Running Rust implementations and diffing...
     - COGS calculations (per-unit normalisation, two-level explosion)
     - Unset BOM item tracking
 
-  Tested 13 fixtures.
+  Tested 22 fixtures.
   COGS MAX_LEVEL = 2 (matches upstream).
 
 ════════════════════════════════════════════════════════════════
@@ -126,10 +128,10 @@ Running Rust implementations and diffing...
 
 | Suite | Count | Status |
 |-------|-------|--------|
-| peacock-core unit tests | 132 | ✅ All pass |
-| Parity fixtures | 13 | ✅ All match to the paisa |
-| Python oracle self-tests | 4 | ✅ All pass |
-| **Total** | **149** | ✅ |
+| peacock-core unit tests | 156 | ✅ All pass |
+| Parity fixtures | 22 | ✅ All match to the paisa |
+| Python oracle self-tests | 19 | ✅ All pass |
+| **Total** | **197** | ✅ |
 
 ### Code quality
 
@@ -143,7 +145,7 @@ Finished `dev` profile [unoptimized + debuginfo] target(s)
 
 ## What the harness proves
 
-1. **Rust and Python agree to the paisa** on tax and COGS over 13 representative cases
+1. **Rust and Python agree to the paisa** on tax, COGS and Product Bundle COGS over 22 representative cases
 2. **The BOM `quantity != 1` bug cannot happen** — fixture 07 would immediately diff
 3. **CGST and SGST split odd paisa correctly** — no lost fractions
 4. **Rounding is applied once** — multi-line invoices don't drift
@@ -175,8 +177,8 @@ The parity harness validates **arithmetic correctness**. The **30-day real-invoi
 
 # Or individually
 python3 scripts/parity_reference.py --test  # Python self-tests
-cargo test -p peacock-core                  # 132 Rust unit tests
-cargo run -p peacock-parity                 # Parity diff (13 fixtures)
+cargo test -p peacock-core                  # 156 Rust unit tests
+cargo run -p peacock-parity                 # Parity diff (22 fixtures)
 ```
 
 All commands are **CI-ready** (exit 0 on success, non-zero on failure).
@@ -187,7 +189,7 @@ All commands are **CI-ready** (exit 0 on success, non-zero on failure).
 
 ### The Python oracle (scripts/parity_reference.py)
 
-- **447 lines, zero dependencies** (uses only `decimal`, `json`, `unittest` from stdlib)
+- **847 lines, zero dependencies** (uses only `decimal`, `json`, `unittest` from stdlib)
 - Faithful reimplementation of upstream `ury_daily_p_and_l.py:10-58` (two-level BOM walk)
 - Preserves the critical arithmetic:
   - Divides by `bom.quantity` for per-unit cost (line 38 upstream)
@@ -198,7 +200,7 @@ All commands are **CI-ready** (exit 0 on success, non-zero on failure).
 
 ### The Rust harness (peacock-parity/src/main.rs)
 
-- **473 lines**
+- **550 lines**
 - Loads fixtures from `peacock-parity/fixtures/*.json`
 - Runs Rust implementations through `peacock-core`
 - Shells out to Python oracle via `stdin`/`stdout` (structured JSON)
@@ -263,7 +265,7 @@ All numerics are **strings** (serialisation safety check):
 | Missing Item Price → `unset_bom_items` | ✅ Fixture 10 |
 | Round-off positive and negative | ✅ Fixtures 04, 05 |
 | Multi-line invoice, rounding order | ✅ Fixtures 06, 11 |
-| `cargo test` at root still passes | ✅ 132 tests pass |
+| `cargo test` at root still passes | ✅ 156 tests pass |
 | `cargo clippy --all-targets` warning-free | ✅ Clean |
 | Cites `file:line` for upstream behaviour | ✅ Comments reference `ury_daily_p_and_l.py:10,38,42` |
 | README.md explains what it proves and doesn't | ✅ `peacock-parity/README.md` |
@@ -311,8 +313,8 @@ A passing harness is **necessary** for Phase 5 completion, not sufficient. The 3
 ## Final status
 
 ✅ **Delivered, tested, documented, and passing**  
-✅ **13 fixtures, all match to the paisa**  
-✅ **132 peacock-core tests still pass**  
+✅ **22 fixtures, all match to the paisa**  
+✅ **156 peacock-core tests still pass**  
 ✅ **Warning-free under clippy**  
 ✅ **CI-ready (exit codes, no manual steps)**  
 ✅ **Spec compliance: 100%**

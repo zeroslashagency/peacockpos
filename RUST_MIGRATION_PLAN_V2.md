@@ -693,9 +693,16 @@ CGST Rule 46(b): consecutive series, unique per financial year, ≤16 characters
 pub async fn allocate_invoice_number(
     tx: &mut Transaction<'_, Postgres>,
     series: &str,
-    fiscal_year: &str,
+    fy_code: &str,              // 4-digit code from fiscal_year_code(), NOT "2026-27"
     idempotency_key: Uuid,
 ) -> Result<InvoiceName> {
+    // Reject an over-long series BEFORE touching the counter, or a config error
+    // burns a number from a legally gapless series. See invoicing.rs.
+    let probe = format!("{series}-{fy_code}-000000");
+    if probe.chars().count() > MAX_INVOICE_NAME_LEN {
+        return Err(Error::InvoiceNameTooLong { name: probe, limit: MAX_INVOICE_NAME_LEN });
+    }
+
     // Replay returns the ORIGINAL number. Without this, a retried submit
     // allocates a second number and gaps the series.
     if let Some(existing) = sqlx::query_scalar!(
@@ -711,16 +718,18 @@ pub async fn allocate_invoice_number(
          WHERE series = $1 AND fiscal_year = $2
         RETURNING next_number - 1
         "#,
-        series, fiscal_year
+        series, fy_code
     )
     .fetch_one(&mut **tx)
     .await?;
 
-    Ok(InvoiceName(format!("{series}-{fiscal_year}-{next:06}")))
+    Ok(InvoiceName(format!("{series}-{fy_code}-{next:06}")))
 }
 ```
 
 A single `UPDATE … RETURNING` takes the row lock and increments atomically. If the surrounding transaction rolls back, the increment rolls back with it. A gap then only appears for a deliberately cancelled invoice, which must carry a logged void reason for the audit.
+
+**The 16-character budget is tight, and the obvious spelling does not fit.** 4 separators-and-counter positions are fixed: 1 separator + 4-digit FY code + 1 separator + 6-digit counter = 12, leaving **4 characters for the series**. `POS-2627-000001` is 15; `PCOS-2627-000001` is exactly 16; a 5-character series is 17 and must be rejected. Interpolating the human-readable `"2026-27"` instead of the compact `"2627"` costs 3 characters and pushes every series of 2+ characters over the cap — which is exactly the defect the domain crate shipped with and has since been fixed. `fiscal_year_for()` is the display form; **`fiscal_year_code()` is the one that goes into invoice names.**
 
 ### 5.4 Money arithmetic rules
 
@@ -856,17 +865,22 @@ Updated 2026-07-29. Verified by running the commands, not by reading lane report
 
 | Module | Lines | Tests | Owner |
 |---|---|---|---|
-| `ids`, `error`, `money`, `model`, `ports`, `lib` | 705 | 9 | orchestrator |
-| `merge.rs` — table clustering, 8 guard rules | 1,075 | 28 | Opus 5 |
+| `ids`, `error`, `model`, `ports`, `lib` | 620 | 5 | orchestrator |
+| `money.rs` — `Decimal`, string wire format, `ROUNDING` pin | 251 | 10 | orchestrator |
+| `merge.rs` — table clustering, 6 guard rules | 1,075 | 28 | Opus 5 |
 | `kot.rs` — station routing, cancel path | 1,672 | 31 | Opus 5 |
-| `cogs.rs` — two-level BOM walk | 571 | 10 | Kimi K3 |
-| `tax.rs` + `invoicing.rs` — GST, gapless numbering | 1,107 | 26 | Fable 5 |
+| `cogs.rs` — two-level BOM walk + Product Bundle path | 1,147 | 21 | Kimi K3, Opus 5 |
+| `tax.rs` + `invoicing.rs` — GST, gapless numbering | 1,307 | 33 | Fable 5, Opus 5 |
 | `businessday.rs` — shift boundaries, IST cutoff | 538 | 14 | Mythos |
-| `menu.rs` — three resolution strategies | 659 | 14 | Mythos |
-| `peacock-parity` + `scripts/parity_reference.py` | 920 | 13 fixtures | Fable 5 |
+| `menu.rs` — three resolution strategies | 667 | 14 | Mythos |
+| `peacock-parity` + `scripts/parity_reference.py` | 1,397 | 22 fixtures, 19 oracle self-tests | Fable 5, Opus 5 |
 
-`cargo test`: **132 passed, 0 failed**. `cargo clippy --all-targets -- -D warnings`: clean.
-`cargo run -p peacock-parity`: all 13 fixtures match to the paisa, exit 0.
+`cargo test --workspace`: **156 passed, 0 failed** (+4 doctests, 1 pre-existing ignore).
+`cargo clippy --all-targets -- -D warnings`: clean.
+`cargo run -p peacock-parity`: all 22 fixtures match to the paisa, exit 0.
+
+`cargo fmt --check` reports **69 diffs across 8 files** and is deliberately not gated in CI yet.
+See the comment at the foot of `.github/workflows/ci.yml`.
 
 ### The parity harness was adversarially validated
 
@@ -881,6 +895,10 @@ three_level_bom_third_priced_as_leaf   cost   60      vs  30      Δ -30
 ```
 
 Three fixtures caught it, exit code 1 for CI. Oracle restored, parity green again. This is the gate that makes v1's silent-wrong-COGS failure mode impossible to reproduce.
+
+Re-validated after the Product Bundle port, against fixture 16 (`bundle_line_with_bom_quantity_not_one`) with the `* line.qty` multiplication dropped from the oracle only. Two independent layers caught it: the oracle's own self-test suite failed first (`76.00 != 104`, aborting the script), and running the diff binary directly reported `cost 76.00 vs 104.00, Δ 28.00`, exit 1. Oracle restored byte-for-byte, parity green.
+
+The same mutation technique pinned two behaviours that a passing test cannot demonstrate on its own: flipping only `parity_reference.ROUNDING` to banker's produces 6 diffs on fixture 14, and entering a bundle line's BOM walk at level 2 instead of level 1 turns fixture 17 from ₹50 into ₹20. Both are the numbers moving, which is the only proof that the fixture is load-bearing.
 
 ### Findings from the build that amend this plan
 
@@ -906,7 +924,7 @@ Three fixtures caught it, exit code 1 for CI. Oracle restored, parity green agai
 | 30-day real-invoice replay (§6 cutover gate) | Needs a live Frappe instance and production data |
 | Data migration (§7 Phase 6) | Needs both databases |
 
-What exists is the **domain layer**: pure logic with storage behind traits, which is why all 132 tests run with no database. That is Phase 1 of §7 done properly, and it is useful either way — if you fork URY, these are the corrected algorithms to port back into Python; if you continue in Rust, it is the foundation the adapter plugs into.
+What exists is the **domain layer**: pure logic with storage behind traits, which is why all 156 tests run with no database. That is Phase 1 of §7 done properly, and it is useful either way — if you fork URY, these are the corrected algorithms to port back into Python; if you continue in Rust, it is the foundation the adapter plugs into.
 
 ---
 
