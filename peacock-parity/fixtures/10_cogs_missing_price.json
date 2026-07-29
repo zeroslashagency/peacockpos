@@ -1,0 +1,25 @@
+{
+  "kind": "cogs",
+  "name": "missing_item_price_unset_bom_items",
+  "item": "SANDWICH",
+  "qty": "2",
+  "buying_price_list": "Buying",
+  "boms": {
+    "SANDWICH": {
+      "quantity": "1",
+      "items": [
+        {
+          "item_code": "BREAD",
+          "qty": "2"
+        },
+        {
+          "item_code": "CHEESE",
+          "qty": "1"
+        }
+      ]
+    }
+  },
+  "prices": {
+    "BREAD": "5"
+  }
+}

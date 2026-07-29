@@ -1,0 +1,14 @@
+{
+  "kind": "tax",
+  "name": "worked_example_4x100_5pct_10pct_discount",
+  "lines": [
+    {
+      "quantity": "4",
+      "rate": "100"
+    }
+  ],
+  "discount": "40",
+  "tax_rate": "0.05",
+  "supply_type": "intrastate",
+  "discount_basis": "net_total"
+}

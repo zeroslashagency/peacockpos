@@ -1,0 +1,27 @@
+{
+  "kind": "cogs",
+  "name": "bundle_line_with_bom_quantity_not_one",
+  "item": "COMBO",
+  "qty": "4",
+  "buying_price_list": "Buying",
+  "bundles": {
+    "COMBO": [
+      { "item_code": "MASALA-CHAI", "qty": "2" },
+      { "item_code": "SAMOSA", "qty": "1" }
+    ]
+  },
+  "boms": {
+    "MASALA-CHAI": {
+      "quantity": "10",
+      "items": [
+        { "item_code": "TEA-LEAVES", "qty": "10" },
+        { "item_code": "MILK", "qty": "100" }
+      ]
+    }
+  },
+  "prices": {
+    "TEA-LEAVES": "2.00",
+    "MILK": "0.50",
+    "SAMOSA": "12"
+  }
+}

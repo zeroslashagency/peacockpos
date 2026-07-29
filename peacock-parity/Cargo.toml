@@ -1,0 +1,18 @@
+[package]
+name = "peacock-parity"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "peacock-parity"
+path = "src/main.rs"
+
+[dependencies]
+peacock-core = { path = "../peacock-core" }
+rust_decimal = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+colored = "2"

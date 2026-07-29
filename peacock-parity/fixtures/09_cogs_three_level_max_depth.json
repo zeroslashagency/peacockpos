@@ -1,0 +1,45 @@
+{
+  "kind": "cogs",
+  "name": "three_level_bom_third_priced_as_leaf",
+  "item": "PIZZA",
+  "qty": "1",
+  "buying_price_list": "Buying",
+  "boms": {
+    "PIZZA": {
+      "quantity": "1",
+      "items": [
+        {
+          "item_code": "BASE",
+          "qty": "1"
+        }
+      ]
+    },
+    "BASE": {
+      "quantity": "2",
+      "items": [
+        {
+          "item_code": "DOUGH",
+          "qty": "2"
+        }
+      ]
+    },
+    "DOUGH": {
+      "quantity": "10",
+      "items": [
+        {
+          "item_code": "FLOUR",
+          "qty": "10"
+        },
+        {
+          "item_code": "WATER",
+          "qty": "5"
+        }
+      ]
+    }
+  },
+  "prices": {
+    "DOUGH": "30",
+    "FLOUR": "1",
+    "WATER": "0.5"
+  }
+}

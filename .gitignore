@@ -1,0 +1,37 @@
+/target
+**/*.rs.bk
+.DS_Store
+
+# never commit these
+.env
+.env.*
+*.pem
+*.key
+privateKey.js
+
+# Read-only upstream clones, deliberately kept out of history.
+#
+# The planning docs (GROUND-TRUTH.md, RUST_MIGRATION_PLAN_V2.md) and the doc
+# comments in peacock-core cite these as `file:line`, so a fresh clone needs
+# them to check any claim. They are not vendored because each carries its own
+# .git and its own upstream history; committing the trees would fork the source
+# of truth and make "verified against upstream" false the moment either side
+# moved.
+#
+# Re-fetch from the repo root before working through the plan:
+#
+#   git clone https://github.com/ury-erp/ury.git     _upstream/ury-ury
+#   git clone https://github.com/ury-erp/pos.git     _upstream/ury-pos
+#   git clone https://github.com/ury-erp/mosaic.git  _upstream/ury-mosaic
+#
+# Revisions the citations were verified against:
+#   ury-ury     bfc731a
+#   ury-pos     39f2f81
+#   ury-mosaic  28b1b17
+#
+# Line numbers hold only at these revisions. Check out the pinned commit before
+# trusting a citation.
+/_upstream/
+
+# Cargo.lock IS committed: peacock-parity is a binary, and a parity harness only
+# means something if its dependency graph is reproducible.

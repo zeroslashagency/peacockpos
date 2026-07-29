@@ -1,0 +1,14 @@
+{
+  "kind": "tax",
+  "name": "interstate_igst",
+  "lines": [
+    {
+      "quantity": "4",
+      "rate": "100"
+    }
+  ],
+  "discount": "40",
+  "tax_rate": "0.05",
+  "supply_type": "interstate",
+  "discount_basis": "net_total"
+}

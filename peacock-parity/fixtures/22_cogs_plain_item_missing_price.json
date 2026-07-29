@@ -1,0 +1,10 @@
+{
+  "kind": "cogs",
+  "name": "plain_item_missing_price_labelled_items",
+  "item": "NO-PRICE",
+  "qty": "3",
+  "buying_price_list": "Buying",
+  "bundles": {},
+  "boms": {},
+  "prices": {}
+}

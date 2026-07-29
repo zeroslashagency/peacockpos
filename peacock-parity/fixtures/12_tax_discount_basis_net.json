@@ -1,0 +1,14 @@
+{
+  "kind": "tax",
+  "name": "discount_basis_net_total",
+  "lines": [
+    {
+      "quantity": "1",
+      "rate": "100"
+    }
+  ],
+  "discount": "10",
+  "tax_rate": "0.05",
+  "supply_type": "intrastate",
+  "discount_basis": "net_total"
+}

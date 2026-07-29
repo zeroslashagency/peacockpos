@@ -1,0 +1,24 @@
+{
+  "kind": "cogs",
+  "name": "bundle_wins_over_bom_for_same_item",
+  "item": "DUAL",
+  "qty": "1",
+  "buying_price_list": "Buying",
+  "bundles": {
+    "DUAL": [
+      { "item_code": "CHEAP", "qty": "1" }
+    ]
+  },
+  "boms": {
+    "DUAL": {
+      "quantity": "1",
+      "items": [
+        { "item_code": "DEAR", "qty": "1" }
+      ]
+    }
+  },
+  "prices": {
+    "CHEAP": "1",
+    "DEAR": "999"
+  }
+}

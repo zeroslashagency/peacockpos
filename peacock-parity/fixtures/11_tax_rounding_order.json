@@ -1,0 +1,22 @@
+{
+  "kind": "tax",
+  "name": "rounding_applied_once_at_invoice_level",
+  "lines": [
+    {
+      "quantity": "1",
+      "rate": "100.11"
+    },
+    {
+      "quantity": "1",
+      "rate": "100.22"
+    },
+    {
+      "quantity": "1",
+      "rate": "100.33"
+    }
+  ],
+  "discount": "0",
+  "tax_rate": "0.05",
+  "supply_type": "intrastate",
+  "discount_basis": "net_total"
+}

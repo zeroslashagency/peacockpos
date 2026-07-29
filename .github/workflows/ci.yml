@@ -1,0 +1,76 @@
+name: CI
+
+# Gates on exactly what "green" means in this repo: the workspace tests, clippy
+# with warnings denied, and the parity harness that diffs peacock-core against
+# the independent Python oracle. `cargo fmt --check` is deliberately absent —
+# see the note at the bottom of this file.
+
+on:
+  push:
+  pull_request:
+
+# A newer push to the same ref makes the older run's answer irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Fail on a warning the same way clippy does, so a warning cannot ride in
+  # through rustc while clippy happens not to lint it.
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: test + clippy + parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # workspace rust-version is 1.80; stable is the floor we develop against.
+      - name: Install Rust stable
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustc --version
+          cargo --version
+          cargo clippy --version
+
+      # The parity oracle is stdlib-only on purpose: no pip install step, so
+      # nothing can drift between the oracle and its dependencies.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache cargo registry and target dir
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: cargo test --workspace
+        run: cargo test --workspace
+
+      - name: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Python oracle self-tests, peacock-core tests, then the fixture diff.
+      - name: parity harness
+        run: ./scripts/run_parity.sh
+
+# cargo fmt is NOT gated here yet: `cargo fmt --check` currently reports diffs in
+# peacock-parity/src/main.rs. Reformat that file in its own commit, then add:
+#
+#   - name: cargo fmt --check
+#     run: cargo fmt --all --check
+#
+# Adding the gate before the tree is clean would red every PR for a reason
+# unrelated to the change under review.

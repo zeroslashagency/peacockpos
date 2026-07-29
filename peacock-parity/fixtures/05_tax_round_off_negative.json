@@ -1,0 +1,14 @@
+{
+  "kind": "tax",
+  "name": "round_off_negative",
+  "lines": [
+    {
+      "quantity": "1",
+      "rate": "360.38"
+    }
+  ],
+  "discount": "0",
+  "tax_rate": "0.05",
+  "supply_type": "intrastate",
+  "discount_basis": "net_total"
+}

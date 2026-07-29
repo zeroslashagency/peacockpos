@@ -1,0 +1,22 @@
+{
+  "kind": "cogs",
+  "name": "bundle_of_bundle_inner_priced_as_leaf",
+  "item": "OUTER",
+  "qty": "1",
+  "buying_price_list": "Buying",
+  "bundles": {
+    "OUTER": [
+      { "item_code": "INNER", "qty": "1" },
+      { "item_code": "DRINK", "qty": "1" }
+    ],
+    "INNER": [
+      { "item_code": "X", "qty": "2" }
+    ]
+  },
+  "boms": {},
+  "prices": {
+    "INNER": "40",
+    "DRINK": "15",
+    "X": "100"
+  }
+}

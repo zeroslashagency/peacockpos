@@ -1,0 +1,33 @@
+{
+  "kind": "cogs",
+  "name": "bundle_adds_no_bom_depth",
+  "item": "PLATTER",
+  "qty": "1",
+  "buying_price_list": "Buying",
+  "bundles": {
+    "PLATTER": [
+      { "item_code": "COMBO-MEAL", "qty": "1" }
+    ]
+  },
+  "boms": {
+    "COMBO-MEAL": {
+      "quantity": "1",
+      "items": [
+        { "item_code": "BURGER", "qty": "2" },
+        { "item_code": "FRIES", "qty": "1" }
+      ]
+    },
+    "BURGER": {
+      "quantity": "5",
+      "items": [
+        { "item_code": "PATTY", "qty": "5" },
+        { "item_code": "BUN", "qty": "5" }
+      ]
+    }
+  },
+  "prices": {
+    "PATTY": "10",
+    "BUN": "5",
+    "FRIES": "20"
+  }
+}

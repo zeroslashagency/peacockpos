@@ -1,0 +1,15 @@
+{
+  "kind": "cogs",
+  "name": "bundle_fully_unpriced_contributes_zero",
+  "item": "MYSTERY",
+  "qty": "7",
+  "buying_price_list": "Buying",
+  "bundles": {
+    "MYSTERY": [
+      { "item_code": "UNKNOWN-A", "qty": "1" },
+      { "item_code": "UNKNOWN-B", "qty": "2" }
+    ]
+  },
+  "boms": {},
+  "prices": {}
+}

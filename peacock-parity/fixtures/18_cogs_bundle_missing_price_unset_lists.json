@@ -1,0 +1,27 @@
+{
+  "kind": "cogs",
+  "name": "bundle_missing_prices_split_across_unset_lists",
+  "item": "MEAL",
+  "qty": "2",
+  "buying_price_list": "Buying",
+  "bundles": {
+    "MEAL": [
+      { "item_code": "RICE", "qty": "1" },
+      { "item_code": "PICKLE", "qty": "1" },
+      { "item_code": "SANDWICH", "qty": "1" }
+    ]
+  },
+  "boms": {
+    "SANDWICH": {
+      "quantity": "1",
+      "items": [
+        { "item_code": "BREAD", "qty": "2" },
+        { "item_code": "CHEESE", "qty": "1" }
+      ]
+    }
+  },
+  "prices": {
+    "RICE": "20",
+    "BREAD": "5"
+  }
+}

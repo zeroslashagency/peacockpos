@@ -1,0 +1,14 @@
+{
+  "kind": "tax",
+  "name": "intrastate_cgst_sgst_split_odd_paisa",
+  "lines": [
+    {
+      "quantity": "1",
+      "rate": "360.2"
+    }
+  ],
+  "discount": "0",
+  "tax_rate": "0.05",
+  "supply_type": "intrastate",
+  "discount_basis": "net_total"
+}

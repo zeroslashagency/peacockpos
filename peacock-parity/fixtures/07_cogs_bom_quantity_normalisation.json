@@ -1,0 +1,26 @@
+{
+  "kind": "cogs",
+  "name": "bom_with_quantity_not_one",
+  "item": "MASALA-CHAI",
+  "qty": "5",
+  "buying_price_list": "Buying",
+  "boms": {
+    "MASALA-CHAI": {
+      "quantity": "10",
+      "items": [
+        {
+          "item_code": "TEA-LEAVES",
+          "qty": "10"
+        },
+        {
+          "item_code": "MILK",
+          "qty": "100"
+        }
+      ]
+    }
+  },
+  "prices": {
+    "TEA-LEAVES": "2.00",
+    "MILK": "0.50"
+  }
+}

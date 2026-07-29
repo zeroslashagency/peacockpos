@@ -1,0 +1,18 @@
+{
+  "kind": "cogs",
+  "name": "bundle_of_plain_items",
+  "item": "THALI",
+  "qty": "3",
+  "buying_price_list": "Buying",
+  "bundles": {
+    "THALI": [
+      { "item_code": "ROTI", "qty": "2" },
+      { "item_code": "DAL", "qty": "1" }
+    ]
+  },
+  "boms": {},
+  "prices": {
+    "ROTI": "5",
+    "DAL": "30"
+  }
+}

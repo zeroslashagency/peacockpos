@@ -1,0 +1,40 @@
+{
+  "kind": "cogs",
+  "name": "two_level_bom",
+  "item": "COMBO-MEAL",
+  "qty": "3",
+  "buying_price_list": "Buying",
+  "boms": {
+    "COMBO-MEAL": {
+      "quantity": "1",
+      "items": [
+        {
+          "item_code": "BURGER",
+          "qty": "2"
+        },
+        {
+          "item_code": "FRIES",
+          "qty": "1"
+        }
+      ]
+    },
+    "BURGER": {
+      "quantity": "5",
+      "items": [
+        {
+          "item_code": "PATTY",
+          "qty": "5"
+        },
+        {
+          "item_code": "BUN",
+          "qty": "5"
+        }
+      ]
+    }
+  },
+  "prices": {
+    "PATTY": "10",
+    "BUN": "5",
+    "FRIES": "20"
+  }
+}

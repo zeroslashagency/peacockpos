@@ -1,0 +1,22 @@
+{
+  "kind": "tax",
+  "name": "multi_line_invoice_no_drift",
+  "lines": [
+    {
+      "quantity": "2",
+      "rate": "100"
+    },
+    {
+      "quantity": "3",
+      "rate": "50"
+    },
+    {
+      "quantity": "1",
+      "rate": "200"
+    }
+  ],
+  "discount": "50",
+  "tax_rate": "0.05",
+  "supply_type": "intrastate",
+  "discount_basis": "net_total"
+}
