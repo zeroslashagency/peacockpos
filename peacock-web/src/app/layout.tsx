@@ -24,8 +24,9 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const apiBase =
-    process.env.NEXT_PUBLIC_API_URL ?? "http://100.72.103.1:8080";
+  const apiBase = (
+    process.env.NEXT_PUBLIC_API_URL || "http://2.28.30.22:8080"
+  ).replace(/^=+/, "");
   return (
     <html
       lang="en"
