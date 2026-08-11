@@ -4,28 +4,28 @@ export const dynamic = "force-dynamic";
 
 export default function ShiftsPage() {
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-      <div className="mb-4">
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Shifts & Z-Reports</h1>
-        <p className="mt-1 max-w-3xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
-          Open / close shifts per terminal, Z-report on close with{" "}
-          <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-xs dark:bg-zinc-800">cash_total</code>,{" "}
-          <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-xs dark:bg-zinc-800">card_total</code>,{" "}
-          <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-xs dark:bg-zinc-800">total_revenue</code>, and{" "}
-          <code className="rounded bg-amber-100 px-1 py-0.5 font-mono text-xs text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
-            cashThresholdWarning
-          </code>{" "}
-          at ₹10,000 (CGST Rule 56). Business days are half-open{" "}
-          <code className="font-mono">[start,end)</code> in <code className="font-mono">Asia/Kolkata</code>.
+    <div className="mx-auto flex min-h-[100dvh] w-full max-w-[1400px] flex-col bg-[#f9fafb] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-semibold tracking-tighter leading-none text-zinc-900">
+          Shifts &amp; Z-Reports
+        </h1>
+        <p className="max-w-[65ch] text-sm leading-6 text-zinc-600">
+          Open and close per terminal · Z-report is sum of{" "}
+          <span className="font-mono tracking-tight text-zinc-900">rounded_total</span> for{" "}
+          <span className="font-mono tracking-tight text-zinc-900">REVENUE</span> statuses in the half-open{" "}
+          <span className="font-mono tracking-tight text-zinc-900">[start,end)</span> day —{" "}
+          <span className="font-mono tracking-tight text-zinc-900">Asia/Kolkata</span>.
         </p>
       </div>
-      <ShiftPanel />
-      <p className="mt-6 text-center text-[11px] text-zinc-500 dark:text-zinc-400">
-        API: <code className="font-mono">POST /api/shifts/open</code> ·{" "}
-        <code className="font-mono">GET /api/shifts/current?terminal=</code> ·{" "}
-        <code className="font-mono">POST /api/shifts/:id/close</code> ·{" "}
-        <code className="font-mono">GET /api/shifts/:id/report</code> ·{" "}
-        <code className="font-mono">GET /api/shifts?terminal=&limit=&offset=</code>
+
+      <div className="mt-6">
+        <ShiftPanel />
+      </div>
+
+      <p className="mt-6 text-center text-xs tracking-tight text-zinc-400">
+        Range is half-open <span className="font-mono">[start,end)</span> in{" "}
+        <span className="font-mono">Asia/Kolkata</span> — invoices at{" "}
+        <span className="font-mono">end</span> belong to the next day. Reconciled with Daily P&amp;L.
       </p>
     </div>
   );

@@ -1,13 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  CookingPot,
+  Timer,
+  CheckCircle,
+  Fire,
+  WarningCircle,
+  ArrowsClockwise,
+  ChefHat,
+  Clock,
+  Receipt,
+  SpinnerGap,
+} from "@phosphor-icons/react";
 import { kotApi, type KotDto } from "@/lib/api";
 import { useSSE } from "@/hooks/useSSE";
+import KotCarousel from "@/components/KotCarousel";
+import { BreathingDot, PopBadge } from "@/components/LivePulse";
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 const STATION_PRESETS = [
   "Hot Kitchen",
   "Tandoor",
@@ -21,17 +34,14 @@ const STATION_PRESETS = [
 function elapsedLabel(timeStr: string | null, dateStr: string): string {
   if (!timeStr) return "—";
   try {
-    // Build a local-ish timestamp: date + time, interpret as IST-ish display
-    // We show elapsed since kot time (HH:mm) today — best-effort.
     const parts = timeStr.split(":");
     if (parts.length < 2) return timeStr;
     const hh = Number(parts[0]);
     const mm = Number(parts[1]);
     const ss = Number(parts[2] ?? 0);
-    const now = new Date();
     const kotDate = new Date(`${dateStr}T00:00:00`);
     kotDate.setHours(hh, mm, ss, 0);
-    const diffMs = now.getTime() - kotDate.getTime();
+    const diffMs = Date.now() - kotDate.getTime();
     if (diffMs < 0) return "now";
     const mins = Math.floor(diffMs / 60000);
     if (mins < 1) return "just now";
@@ -51,17 +61,19 @@ function timeDisplay(k: KotDto): string {
 }
 
 // ---------------------------------------------------------------------------
-// Ticket card
+// Kot card — tactile, layout + stagger
 // ---------------------------------------------------------------------------
 
 function TicketCard({
   kot,
   onBump,
   bumping,
+  index,
 }: {
   kot: KotDto;
   onBump: (id: string) => void;
   bumping: boolean;
+  index: number;
 }) {
   const qtyTotal = useMemo(() => {
     try {
@@ -72,75 +84,78 @@ function TicketCard({
   }, [kot.items]);
 
   return (
-    <div className="group flex flex-col rounded-xl border border-zinc-200 bg-white shadow-sm transition hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900">
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 6 }}
+      transition={{ type: "spring", stiffness: 100, damping: 20, delay: index * 0.04 }}
+      className="group flex min-h-[320px] w-[340px] shrink-0 flex-col rounded-[2rem] border border-slate-200/50 bg-white shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] transition will-change-transform hover:-translate-y-[1px] hover:shadow-[0_20px_40px_-12px_rgba(0,0,0,0.08)]"
+    >
       {/* header */}
-      <div className="flex items-start justify-between gap-2 border-b border-zinc-100 px-3.5 py-3 dark:border-zinc-800">
+      <div className="flex items-start justify-between gap-2 border-b border-zinc-100 px-5 py-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              {kot.id}
-            </span>
+          <div className="flex items-center gap-2">
+            <span className="truncate font-mono text-sm font-semibold tracking-tight text-zinc-900">{kot.id}</span>
             {kot.kot_type && (
               <span
-                className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-widest ${
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest ${
                   kot.kot_type === "New Order"
-                    ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200/50"
                     : kot.kot_type === "Order Modified"
-                      ? "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200"
+                      ? "bg-sky-50 text-sky-700 border border-sky-200/50"
                       : kot.kot_type === "Cancelled"
-                        ? "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200"
-                        : "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                        ? "bg-red-50 text-red-600 border border-red-200/50"
+                        : "bg-zinc-50 text-zinc-500 border border-zinc-200/60"
                 }`}
               >
                 {kot.kot_type}
               </span>
             )}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-            <span className="font-mono">{kot.invoice}</span>
-            <span className="text-zinc-300 dark:text-zinc-600">·</span>
-            <span>{timeDisplay(kot)}</span>
-            <span className="text-zinc-300 dark:text-zinc-600">·</span>
-            <span className="text-[11px]">{elapsedLabel(kot.time ?? null, kot.date)}</span>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+            <span className="font-mono tracking-tight text-zinc-600">{kot.invoice}</span>
+            <span className="text-zinc-300">·</span>
+            <span className="inline-flex items-center gap-1">
+              <Clock size={12} weight="light" className="text-zinc-400" />
+              {timeDisplay(kot)}
+            </span>
+            <span className="text-zinc-300">·</span>
+            <span className="text-[11px] text-zinc-400">{elapsedLabel(kot.time ?? null, kot.date)}</span>
           </div>
         </div>
         <span
-          className={`shrink-0 rounded-full px-2 py-1 text-[11px] font-medium ${
+          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium tracking-tight ${
             kot.is_aggregator
-              ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-200"
-              : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+              ? "bg-zinc-900 text-white"
+              : "border border-slate-200/60 bg-zinc-50 text-zinc-600"
           }`}
-          title={kot.is_aggregator ? `Aggregator ${kot.aggregator_id ?? ""}` : "Dine-in / Takeaway"}
         >
-          {kot.is_aggregator ? kot.aggregator_id ?? "AGG" : kot.table_takeaway ? "Takeaway" : "Dine-in"}
+          {kot.is_aggregator ? (kot.aggregator_id ?? "AGG") : kot.table_takeaway ? "Takeaway" : "Dine-in"}
         </span>
       </div>
 
       {/* meta */}
-      <div className="grid grid-cols-2 gap-2 px-3.5 py-2.5 text-xs">
-        <div className="rounded-lg bg-zinc-50 px-2.5 py-2 dark:bg-zinc-800/60">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-            Table
-          </div>
-          <div className="mt-0.5 font-medium text-zinc-900 dark:text-zinc-100">
+      <div className="grid grid-cols-2 gap-2 px-5 py-3">
+        <div className="rounded-2xl bg-[#f9fafb] px-3 py-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">Table</div>
+          <div className="mt-0.5 truncate text-sm font-medium tracking-tight text-zinc-900">
             {kot.restaurant_table ?? "—"}
-            {kot.order_no ? <span className="font-mono text-zinc-500"> · {kot.order_no}</span> : null}
+            {kot.order_no ? <span className="ml-1 font-mono text-xs text-zinc-500">· {kot.order_no}</span> : null}
           </div>
         </div>
-        <div className="rounded-lg bg-zinc-50 px-2.5 py-2 dark:bg-zinc-800/60">
-          <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-            Covers · Production
-          </div>
-          <div className="mt-0.5 truncate font-medium text-zinc-900 dark:text-zinc-100">
-            {kot.production ?? "—"}
-            <span className="ml-1.5 inline-flex items-center rounded bg-white px-1 py-0.5 font-mono text-[11px] dark:bg-zinc-900">
+        <div className="rounded-2xl bg-[#f9fafb] px-3 py-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-widest text-zinc-400">Production</div>
+          <div className="mt-0.5 flex items-center gap-1.5 truncate text-sm font-medium tracking-tight text-zinc-900">
+            <span className="truncate">{kot.production ?? "—"}</span>
+            <span className="inline-flex shrink-0 items-center rounded-full bg-white px-2 py-0.5 font-mono text-[11px] font-medium text-zinc-600 shadow-sm ring-1 ring-slate-200/50">
               {qtyTotal} pcs
             </span>
           </div>
         </div>
         {kot.customer_name && (
-          <div className="col-span-2 truncate text-xs text-zinc-600 dark:text-zinc-400">
-            <span className="font-medium text-zinc-900 dark:text-zinc-200">{kot.customer_name}</span>
+          <div className="col-span-2 truncate pt-1 text-xs leading-5 text-zinc-500">
+            <span className="font-medium tracking-tight text-zinc-900">{kot.customer_name}</span>
             {kot.branch ? <span className="text-zinc-400"> · {kot.branch}</span> : null}
             {kot.comments ? <span className="text-zinc-500"> — {kot.comments}</span> : null}
           </div>
@@ -148,38 +163,34 @@ function TicketCard({
       </div>
 
       {/* items */}
-      <div className="flex-1 px-3.5 pb-2">
-        <div className="space-y-1.5">
+      <div className="flex-1 px-5 pb-2">
+        <div className="space-y-2">
           {kot.items.map((it, idx) => (
             <div
               key={`${it.item}-${idx}`}
-              className="flex items-start justify-between gap-2 rounded-lg border border-zinc-100 bg-zinc-50/70 px-2.5 py-2 dark:border-zinc-800 dark:bg-zinc-800/50"
+              className="flex items-start justify-between gap-2 rounded-2xl border border-slate-200/50 bg-white px-3 py-2.5 shadow-sm"
             >
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium leading-none text-zinc-900 dark:text-zinc-100">
-                    {it.item_name}
-                  </span>
+                  <span className="truncate text-sm font-medium leading-none tracking-tight text-zinc-900">{it.item_name}</span>
                   {it.course && (
-                    <span className="shrink-0 rounded bg-white px-1 py-0.5 text-[10px] font-medium text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+                    <span className="shrink-0 rounded-full bg-[#f9fafb] px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-zinc-500 ring-1 ring-slate-200/50">
                       {it.course}
                     </span>
                   )}
-                  {it.indicate_course && (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" title="Course fire" />
-                  )}
+                  {it.indicate_course && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-                  <span className="font-mono text-zinc-600 dark:text-zinc-300">{it.item}</span>
-                  {it.comments && <span className="italic">“{it.comments}”</span>}
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+                  <span className="font-mono tracking-tight text-zinc-600">{it.item}</span>
+                  {it.comments && <span className="italic text-zinc-500">“{it.comments}”</span>}
                   {it.serve_priority ? (
-                    <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                    <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-amber-700 ring-1 ring-amber-200/50">
                       P{it.serve_priority}
                     </span>
                   ) : null}
                 </div>
               </div>
-              <span className="shrink-0 rounded-full bg-zinc-900 px-2 py-1 font-mono text-xs font-semibold text-white dark:bg-white dark:text-zinc-900">
+              <span className="shrink-0 rounded-full bg-zinc-900 px-2.5 py-1 font-mono text-xs font-semibold tracking-tight text-white">
                 ×{it.quantity}
               </span>
             </div>
@@ -187,22 +198,56 @@ function TicketCard({
         </div>
       </div>
 
-      {/* footer */}
-      <div className="flex items-center justify-between gap-2 border-t border-zinc-100 px-3.5 py-3 dark:border-zinc-800">
-        <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
-          {kot.pos_profile ?? "—"}
+      {/* footer tactile */}
+      <div className="flex items-center justify-between gap-2 border-t border-zinc-100 px-5 py-4">
+        <div className="min-w-0 text-[11px] leading-4 text-zinc-400">
+          <span className="truncate">{kot.pos_profile ?? "—"}</span>
           {kot.verified && kot.verified_by ? (
-            <span className="ml-1 text-emerald-600 dark:text-emerald-400">✓ {kot.verified_by}</span>
+            <span className="ml-1.5 inline-flex items-center gap-1 font-medium text-emerald-600">
+              <CheckCircle size={12} weight="light" /> {kot.verified_by}
+            </span>
           ) : null}
         </div>
-        <button
+        <motion.button
           onClick={() => onBump(kot.id)}
           disabled={bumping}
-          className="inline-flex items-center justify-center rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-emerald-500 dark:hover:bg-emerald-600"
+          whileTap={{ scale: 0.98 }}
+          transition={{ type: "spring", stiffness: 100, damping: 20 }}
+          className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-emerald-600 px-5 py-2 text-xs font-semibold tracking-tight text-white shadow-sm transition hover:bg-emerald-700 hover:shadow-md active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {bumping ? "Bumping…" : "Bump ✓"}
-        </button>
+          {bumping ? (
+            <>
+              <SpinnerGap size={14} weight="light" className="animate-spin" /> Bumping…
+            </>
+          ) : (
+            <>
+              <CheckCircle size={14} weight="light" /> Mark prepared
+            </>
+          )}
+        </motion.button>
       </div>
+    </motion.div>
+  );
+}
+
+// Skeleton matching card
+function TicketSkeleton({ index }: { index: number }) {
+  return (
+    <div
+      className="flex h-[320px] w-[340px] shrink-0 flex-col rounded-[2rem] border border-slate-200/50 bg-white p-5 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)]"
+      style={{ animationDelay: `calc(${index}*60ms)` } as React.CSSProperties}
+    >
+      <div className="shimmer h-4 w-24 rounded-full bg-zinc-100" />
+      <div className="mt-3 h-3 w-40 rounded-full bg-zinc-50" />
+      <div className="mt-6 grid grid-cols-2 gap-2">
+        <div className="h-16 rounded-2xl bg-zinc-50" />
+        <div className="h-16 rounded-2xl bg-zinc-50" />
+      </div>
+      <div className="mt-4 space-y-2">
+        <div className="h-12 rounded-2xl bg-zinc-50" />
+        <div className="h-12 rounded-2xl bg-zinc-50" />
+      </div>
+      <div className="mt-auto h-9 rounded-full bg-zinc-100" />
     </div>
   );
 }
@@ -220,6 +265,9 @@ export default function KdsPage() {
   const [error, setError] = useState<string | null>(null);
   const [bumpingId, setBumpingId] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
+  const [popCount, setPopCount] = useState(0);
+  const [showPop, setShowPop] = useState(false);
+  const prevLen = useRef(0);
 
   const { events, connected, error: sseError } = useSSE({
     events: ["kot.generated", "kot.prepared", "kot_update", "kot.submitted", "kot.modified"],
@@ -233,45 +281,40 @@ export default function KdsPage() {
     setError(null);
     try {
       const res = await kotApi.pending(s);
-      setTickets(res.kots);
-      setLastRefresh(new Date().toLocaleTimeString());
+      const next = res.kots;
+      // pop detection
+      if (next.length > prevLen.current && prevLen.current !== 0) {
+        const delta = next.length - prevLen.current;
+        setPopCount(delta);
+        setShowPop(true);
+        setTimeout(() => setShowPop(false), 3000);
+      }
+      prevLen.current = next.length;
+      setTickets(next);
+      setLastRefresh(new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" }));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      // ApiError carries problem.detail in message
-      setError(msg);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   }, [station]);
 
-  // initial + station change
   useEffect(() => {
     fetchTickets();
   }, [fetchTickets]);
 
-  // SSE → auto-refresh (debounced: event-driven)
   useEffect(() => {
     if (events.length === 0) return;
     const last = events[events.length - 1];
     const kind = String(last.event).toLowerCase();
-    if (
-      kind.includes("kot") ||
-      kind.includes("generated") ||
-      kind.includes("prepared") ||
-      kind === "kot_update"
-    ) {
-      // Only refresh if the event is for this station — but payload is opaque, so refresh anyway
-      // with a short debounce to avoid thundering on burst.
+    if (kind.includes("kot") || kind.includes("generated") || kind.includes("prepared") || kind === "kot_update") {
       fetchTickets();
     }
   }, [events, fetchTickets]);
 
-  // Poll fallback every 10s when SSE disconnected
   useEffect(() => {
     if (connected) return;
-    const id = setInterval(() => {
-      fetchTickets();
-    }, 10_000);
+    const id = setInterval(fetchTickets, 10_000);
     return () => clearInterval(id);
   }, [connected, fetchTickets]);
 
@@ -279,97 +322,146 @@ export default function KdsPage() {
     const trimmed = stationInput.trim();
     if (!trimmed) return;
     setStation(trimmed);
-    // clear prepared local when switching station so it doesn't leak
     setPreparedLocal([]);
+    prevLen.current = 0;
   };
 
   const handleBump = async (kotId: string) => {
     setBumpingId(kotId);
     try {
       const updated = await kotApi.markPrepared(kotId, {});
-      // move to preparedLocal optimistically
       const bumped = tickets.find((t) => t.id === kotId) ?? updated;
       setTickets((prev) => prev.filter((t) => t.id !== kotId));
       setPreparedLocal((prev) => [
         { ...bumped, start_time_prep: updated.start_time_prep ?? new Date().toTimeString().slice(0, 8) },
         ...prev,
-      ].slice(0, 20));
+      ].slice(0, 12));
+      // adjust prevLen
+      prevLen.current = Math.max(0, prevLen.current - 1);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setError(msg);
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBumpingId(null);
-      // background refresh to stay consistent with server filter
       fetchTickets();
     }
   };
 
-  // Columns: pending = server pending (not prepared). For premium 3-col layout:
-  // Pending  = all pending
-  // Preparing = subset artificially: tickets older than 5m (or with comments/priority) — still pending but highlighted
-  // Prepared = local bumped + any with start_time_prep (should be empty from API, but we keep local)
-  const pending = tickets;
-  const preparing = useMemo(() => {
-    // Treat tickets with serve_priority > 0 or indicate_course as "firing now" → Preparing
-    // Fallback: if no such tickets, show empty with placeholder.
-    return tickets.filter((t) => t.items.some((it) => it.serve_priority > 0 || it.indicate_course));
-  }, [tickets]);
+  const preparing = useMemo(
+    () => tickets.filter((t) => t.items.some((it) => it.serve_priority > 0 || it.indicate_course)),
+    [tickets]
+  );
   const pendingOnly = useMemo(() => {
-    const preparingIds = new Set(preparing.map((p) => p.id));
-    return pending.filter((k) => !preparingIds.has(k.id));
-  }, [pending, preparing]);
+    const ids = new Set(preparing.map((p) => p.id));
+    return tickets.filter((k) => !ids.has(k.id));
+  }, [tickets, preparing]);
+
+  const totalPending = tickets.length;
 
   return (
-    <div className="mx-auto flex w-full max-w-[1600px] flex-col px-3 py-4 sm:px-4 lg:px-6 lg:py-6">
-      {/* Top bar */}
-      <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">KDS — Kitchen Display</h1>
-              <span
-                className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-                  connected
-                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200"
-                    : "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200"
-                }`}
-              >
-                <span className={`h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500 animate-pulse"}`} />
-                {connected ? "SSE live" : "Polling (SSE off)"}
+    <div className="mx-auto flex min-h-[100dvh] w-full max-w-[1400px] flex-col gap-6 bg-[#f9fafb] px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      {/* Page heading — left aligned, anti-center */}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-zinc-900 text-white">
+                <CookingPot size={16} weight="light" />
               </span>
-              {lastRefresh && (
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">updated {lastRefresh}</span>
-              )}
+              <h1 className="text-3xl font-semibold tracking-tighter leading-none text-zinc-900">Kitchen</h1>
+              <span className="hidden text-sm font-light tracking-tight text-zinc-400 sm:inline">· Fire &amp; bump</span>
             </div>
-            <p className="mt-1 max-w-2xl text-xs leading-5 text-zinc-600 dark:text-zinc-400 sm:text-sm">
-              Station-filtered ticket board. Live via{" "}
-              <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-xs dark:bg-zinc-800">
-                /api/events/stream?events=kot.generated,kot.prepared
-              </code>{" "}
-              with 10s poll fallback. Bump calls{" "}
-              <code className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-xs dark:bg-zinc-800">
-                POST /api/kot/:id/mark-prepared
-              </code>{" "}
-              (idempotent).
+            <p className="mt-2 max-w-[65ch] text-sm leading-6 text-zinc-600">
+              Station-filtered live board. Bump is idempotent — double-tap is safe. Polls every 10s when SSE is off.
             </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-white px-3 py-1.5 font-mono tracking-tight text-zinc-600">
+              <span className="relative flex h-2 w-2">
+                <span className={`absolute inline-flex h-full w-full rounded-full ${connected ? "bg-emerald-500 opacity-30" : "bg-amber-400 opacity-30"} animate-ping`} />
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${connected ? "bg-emerald-500" : "bg-amber-500"}`} />
+              </span>
+              {connected ? "SSE live" : "Polling"}
+            </span>
+            {lastRefresh && <span className="font-mono text-zinc-400">updated {lastRefresh}</span>}
+          </div>
+        </div>
+        {(sseError || error) && (
+          <div className="flex flex-wrap gap-2">
             {sseError && (
-              <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
-                SSE: {sseError} — polling fallback active.
-              </div>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-medium tracking-tight text-amber-700 ring-1 ring-amber-200/50">
+                <WarningCircle size={14} weight="light" /> SSE: {sseError}
+              </span>
             )}
             {error && (
-              <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
-                {error}
-              </div>
+              <span className="inline-flex max-w-full items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-xs font-medium tracking-tight text-red-700 ring-1 ring-red-200/60">
+                <WarningCircle size={14} weight="light" /> {error}
+              </span>
             )}
           </div>
+        )}
+      </div>
 
-          <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-end lg:w-auto">
-            <div className="flex-1 sm:min-w-[280px]">
-              <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500 dark:text-zinc-400">
-                Station — production unit / item_group
-              </label>
-              <div className="mt-1 flex gap-1.5">
+      {/* Asymmetric 1+2 */}
+      <div className="grid grid-cols-12 gap-6">
+        {/* LEFT — Live Status */}
+        <section className="col-span-12 flex flex-col gap-4 lg:col-span-4">
+          <div className="rounded-[2.5rem] border border-slate-200/50 bg-white p-8 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)]">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-zinc-900 text-white">
+                  <Fire size={16} weight="light" />
+                </span>
+                <div>
+                  <h2 className="text-sm font-semibold tracking-tighter leading-none text-zinc-900">Live Status</h2>
+                  <p className="mt-0.5 text-xs leading-4 text-zinc-500">Station · {station}</p>
+                </div>
+              </div>
+              <BreathingDot active={totalPending > 0} />
+            </div>
+
+            {/* Hero number */}
+            <div className="mt-6 flex items-baseline gap-3">
+              <span className="text-5xl font-semibold tracking-tighter leading-none text-zinc-900 md:text-6xl">
+                {loading && totalPending === 0 ? "—" : totalPending}
+              </span>
+              <span className="text-sm font-medium tracking-tight text-zinc-500">pending</span>
+              <span className="ml-1">
+                <PopBadge count={popCount} show={showPop} />
+              </span>
+            </div>
+            <div className="mt-1 flex items-center gap-1.5 text-xs text-zinc-400">
+              <Clock size={12} weight="light" /> fire queue · {pendingOnly.length} awaiting · {preparing.length} firing
+            </div>
+
+            {/* stats — airy, not boxed triad */}
+            <div className="mt-6 grid grid-cols-3 gap-3">
+              <div className="rounded-2xl bg-[#f9fafb] p-4">
+                <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+                  <Timer size={12} weight="light" /> Pending
+                </div>
+                <div className="mt-1 font-mono text-xl font-semibold tracking-tighter text-zinc-900">{pendingOnly.length}</div>
+                <div className="text-[11px] leading-4 text-zinc-400">awaiting fire</div>
+              </div>
+              <div className="rounded-2xl bg-[#f9fafb] p-4">
+                <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-zinc-400">
+                  <Fire size={12} weight="light" /> Firing
+                </div>
+                <div className="mt-1 font-mono text-xl font-semibold tracking-tighter text-zinc-900">{preparing.length}</div>
+                <div className="text-[11px] leading-4 text-zinc-400">priority / course</div>
+              </div>
+              <div className="rounded-2xl bg-emerald-50 p-4 ring-1 ring-emerald-200/40">
+                <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-emerald-700">
+                  <CheckCircle size={12} weight="light" /> Done
+                </div>
+                <div className="mt-1 font-mono text-xl font-semibold tracking-tighter text-emerald-900">{preparedLocal.length}</div>
+                <div className="text-[11px] leading-4 text-emerald-700/60">this session</div>
+              </div>
+            </div>
+
+            {/* station picker */}
+            <div className="mt-6 flex flex-col gap-2">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-zinc-500">Station — production unit</label>
+              <div className="flex gap-2">
                 <input
                   value={stationInput}
                   onChange={(e) => setStationInput(e.target.value)}
@@ -378,21 +470,22 @@ export default function KdsPage() {
                   }}
                   placeholder="Hot Kitchen"
                   list="kds-stations"
-                  className="w-full rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm outline-none placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-zinc-300"
+                  className="w-full rounded-full border border-slate-200/60 bg-white px-4 py-2.5 text-sm tracking-tight outline-none placeholder:text-zinc-400 focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
                 />
                 <datalist id="kds-stations">
                   {STATION_PRESETS.map((s) => (
                     <option key={s} value={s} />
                   ))}
                 </datalist>
-                <button
+                <motion.button
+                  whileTap={{ scale: 0.98 }}
                   onClick={handleStationLoad}
-                  className="shrink-0 rounded-full bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-100"
+                  className="shrink-0 rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-semibold tracking-tight text-white shadow-sm transition hover:bg-zinc-800"
                 >
                   Load
-                </button>
+                </motion.button>
               </div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {STATION_PRESETS.map((s) => (
                   <button
                     key={s}
@@ -400,11 +493,12 @@ export default function KdsPage() {
                       setStationInput(s);
                       setStation(s);
                       setPreparedLocal([]);
+                      prevLen.current = 0;
                     }}
-                    className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                    className={`rounded-full border px-2.5 py-1 text-xs font-medium tracking-tight transition ${
                       station === s
-                        ? "border-zinc-900 bg-zinc-900 text-white dark:border-white dark:bg-white dark:text-zinc-900"
-                        : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                        ? "border-zinc-900 bg-zinc-900 text-white"
+                        : "border-slate-200/60 bg-white text-zinc-600 hover:bg-zinc-50"
                     }`}
                   >
                     {s}
@@ -412,166 +506,188 @@ export default function KdsPage() {
                 ))}
               </div>
             </div>
-            <button
-              onClick={fetchTickets}
-              disabled={loading}
-              className="inline-flex items-center justify-center gap-1.5 rounded-full border border-zinc-300 bg-white px-4 py-2 text-sm font-medium text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-            >
-              <span className={`h-3 w-3 rounded-full border-2 border-zinc-400 border-t-transparent ${loading ? "animate-spin" : "hidden"}`} />
-              Refresh
-            </button>
-          </div>
-        </div>
 
-        {/* stats */}
-        <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
-          <div className="rounded-xl bg-zinc-900 px-3 py-3 text-white dark:bg-white dark:text-zinc-900">
-            <div className="text-[10px] font-semibold uppercase tracking-widest opacity-70">Station</div>
-            <div className="mt-1 truncate font-mono text-sm font-semibold">{station}</div>
-            <div className="text-xs opacity-70">{pending.length} pending</div>
-          </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 dark:border-amber-900/30 dark:bg-amber-950/30">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-amber-700 dark:text-amber-300">Pending</div>
-            <div className="mt-1 text-lg font-semibold text-amber-900 dark:text-amber-100">{pendingOnly.length}</div>
-            <div className="text-xs text-amber-700/70 dark:text-amber-300/70">awaiting fire</div>
-          </div>
-          <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 dark:border-sky-900/30 dark:bg-sky-950/30">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-sky-700 dark:text-sky-300">Preparing</div>
-            <div className="mt-1 text-lg font-semibold text-sky-900 dark:text-sky-100">{preparing.length}</div>
-            <div className="text-xs text-sky-700/70 dark:text-sky-300/70">priority / course</div>
-          </div>
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 dark:border-emerald-900/30 dark:bg-emerald-950/30">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-emerald-700 dark:text-emerald-300">Prepared</div>
-            <div className="mt-1 text-lg font-semibold text-emerald-900 dark:text-emerald-100">{preparedLocal.length}</div>
-            <div className="text-xs text-emerald-700/70 dark:text-emerald-300/70">bumped this view</div>
-          </div>
-        </div>
-      </div>
+            <div className="mt-6 flex items-center gap-2">
+              <motion.button
+                whileTap={{ scale: 0.98 }}
+                onClick={fetchTickets}
+                disabled={loading}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/60 bg-white px-4 py-2 text-sm font-medium tracking-tight text-zinc-700 transition hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {loading ? <SpinnerGap size={14} weight="light" className="animate-spin" /> : <ArrowsClockwise size={14} weight="light" />}
+                Refresh
+              </motion.button>
+              <span className="font-mono text-xs tracking-tight text-zinc-400">{totalPending} tickets · {station}</span>
+            </div>
 
-      {/* Board */}
-      <div className="mt-4 grid flex-1 gap-4 lg:grid-cols-3">
-        {/* Pending */}
-        <section className="flex flex-col rounded-2xl border border-amber-200 bg-amber-50/40 dark:border-amber-900/20 dark:bg-amber-950/10">
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-amber-200 bg-amber-50/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-amber-50/80 sm:px-4 dark:border-amber-900/30 dark:bg-amber-950/40">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-amber-900 dark:text-amber-100">
-              <span className="h-2 w-2 rounded-full bg-amber-500" />
-              Pending
-              <span className="rounded-full bg-white px-2 py-0.5 font-mono text-xs text-amber-800 dark:bg-zinc-900 dark:text-amber-200">
-                {pendingOnly.length}
-              </span>
-            </h2>
-            <span className="text-[11px] text-amber-700/70 dark:text-amber-300/60">oldest first</span>
+            <p className="mt-4 text-xs leading-5 text-zinc-400">
+              Filter <span className="font-mono tracking-tight text-zinc-600">production = {JSON.stringify(station)}</span> via{" "}
+              <span className="font-mono tracking-tight">GET /api/production-units/:id/pending-kots</span>
+            </p>
           </div>
-          <div className="flex-1 space-y-3 p-3 sm:p-4">
-            {loading && pendingOnly.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-amber-300 bg-white p-6 text-center text-sm text-amber-700/70 dark:border-amber-800 dark:bg-zinc-900 dark:text-amber-300/60">
-                Loading tickets…
-              </div>
-            ) : pendingOnly.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-zinc-300 bg-white p-8 text-center dark:border-zinc-700 dark:bg-zinc-900">
-                <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">No pending tickets</div>
-                <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Station <span className="font-mono font-semibold">{station}</span> has no unprepared KOTs.
-                </div>
-                <div className="mt-3 text-xs text-zinc-400">Generate a KOT via POS → Send to Kitchen to see it here.</div>
-              </div>
-            ) : (
-              pendingOnly.map((kot) => (
-                <TicketCard key={kot.id} kot={kot} onBump={handleBump} bumping={bumpingId === kot.id} />
-              ))
-            )}
-          </div>
-        </section>
 
-        {/* Preparing */}
-        <section className="flex flex-col rounded-2xl border border-sky-200 bg-sky-50/40 dark:border-sky-900/20 dark:bg-sky-950/10">
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-sky-200 bg-sky-50/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-sky-50/80 sm:px-4 dark:border-sky-900/30 dark:bg-sky-950/40">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-sky-900 dark:text-sky-100">
-              <span className="h-2 w-2 rounded-full bg-sky-500" />
-              Preparing
-              <span className="rounded-full bg-white px-2 py-0.5 font-mono text-xs text-sky-800 dark:bg-zinc-900 dark:text-sky-200">
-                {preparing.length}
-              </span>
-            </h2>
-            <span className="text-[11px] text-sky-700/70 dark:text-sky-300/60">priority / course</span>
-          </div>
-          <div className="flex-1 space-y-3 p-3 sm:p-4">
-            {preparing.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-sky-200 bg-white p-8 text-center dark:border-sky-900/30 dark:bg-zinc-900">
-                <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Nothing firing</div>
-                <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Tickets with course or priority land here. Bump from Pending when fire starts.
-                </div>
-              </div>
-            ) : (
-              preparing.map((kot) => (
-                <TicketCard key={kot.id} kot={kot} onBump={handleBump} bumping={bumpingId === kot.id} />
-              ))
-            )}
-          </div>
-        </section>
-
-        {/* Prepared */}
-        <section className="flex flex-col rounded-2xl border border-emerald-200 bg-emerald-50/30 dark:border-emerald-900/20 dark:bg-emerald-950/10">
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-emerald-200 bg-emerald-50/95 px-3 py-3 backdrop-blur supports-[backdrop-filter]:bg-emerald-50/80 sm:px-4 dark:border-emerald-900/30 dark:bg-emerald-950/40">
-            <h2 className="flex items-center gap-2 text-sm font-semibold text-emerald-900 dark:text-emerald-100">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              Prepared
-              <span className="rounded-full bg-white px-2 py-0.5 font-mono text-xs text-emerald-800 dark:bg-zinc-900 dark:text-emerald-200">
+          {/* Prepared mini timeline — border-t not boxed */}
+          <div className="rounded-[2.5rem] border border-slate-200/50 bg-white p-8 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)]">
+            <h3 className="flex items-center gap-2 text-sm font-semibold tracking-tighter text-zinc-900">
+              <CheckCircle size={16} weight="light" className="text-emerald-500" /> Bumped this session
+              <span className="rounded-full bg-zinc-900 px-2 py-0.5 font-mono text-xs font-semibold tracking-tight text-white">
                 {preparedLocal.length}
               </span>
-            </h2>
-            <span className="text-[11px] text-emerald-700/70 dark:text-emerald-300/60">this session</span>
-          </div>
-          <div className="flex-1 space-y-3 p-3 sm:p-4">
-            {preparedLocal.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-emerald-200 bg-white p-8 text-center dark:border-emerald-900/30 dark:bg-zinc-900">
-                <div className="text-sm font-medium text-zinc-700 dark:text-zinc-300">No bumps yet</div>
-                <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Bumped tickets appear here until refresh. Server filters them as{" "}
-                  <code className="font-mono text-xs">order_status = Prepared</code>.
+            </h3>
+            <p className="mt-1 text-xs leading-5 text-zinc-500">Clears on station switch or refresh.</p>
+
+            <div className="mt-4">
+              {preparedLocal.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200/70 bg-[#f9fafb] p-6 text-center">
+                  <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-full bg-white text-zinc-400 ring-1 ring-slate-200/50">
+                    <Receipt size={16} weight="light" />
+                  </div>
+                  <div className="mt-2 text-sm font-medium tracking-tight text-zinc-700">No bumps yet</div>
+                  <div className="mx-auto mt-1 max-w-[28ch] text-xs leading-5 text-zinc-500">
+                    Bumped tickets appear here and are filtered server-side as <span className="font-mono">order_status = Prepared</span>.
+                  </div>
                 </div>
-              </div>
-            ) : (
-              preparedLocal.map((kot) => (
-                <div
-                  key={kot.id}
-                  className="rounded-xl border border-emerald-200 bg-white p-3 opacity-90 shadow-sm dark:border-emerald-900/30 dark:bg-zinc-900"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-sm font-semibold text-zinc-900 dark:text-zinc-100">{kot.id}</span>
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200">
-                      Prepared {kot.start_time_prep ? `· ${kot.start_time_prep}` : ""}
-                    </span>
-                  </div>
-                  <div className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
-                    {kot.invoice} · {kot.restaurant_table ?? "—"} · {kot.items.length} items
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {kot.items.slice(0, 4).map((it, i) => (
-                      <span
-                        key={i}
-                        className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+              ) : (
+                <div className="divide-y divide-zinc-100 border-t border-zinc-100">
+                  <AnimatePresence initial={false}>
+                    {preparedLocal.map((kot) => (
+                      <motion.div
+                        key={kot.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                        className="flex items-center justify-between gap-3 py-3"
                       >
-                        {it.item_name} ×{it.quantity}
-                      </span>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-semibold tracking-tight text-zinc-900">{kot.id}</span>
+                            <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium tracking-tight text-emerald-700 ring-1 ring-emerald-200/40">
+                              Prepared {kot.start_time_prep ? `· ${kot.start_time_prep}` : ""}
+                            </span>
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-zinc-500">
+                            {kot.invoice} · {kot.restaurant_table ?? "—"} · {kot.items.length} items
+                          </div>
+                        </div>
+                        <span className="hidden shrink-0 font-mono text-xs tracking-tight text-zinc-400 sm:inline">
+                          {kot.items.slice(0, 2).map((i) => i.item_name).join(" · ")}
+                        </span>
+                      </motion.div>
                     ))}
-                    {kot.items.length > 4 && (
-                      <span className="text-xs text-zinc-500">+{kot.items.length - 4} more</span>
-                    )}
-                  </div>
+                  </AnimatePresence>
                 </div>
-              ))
-            )}
+              )}
+            </div>
           </div>
         </section>
-      </div>
 
-      <p className="mt-4 text-center text-[11px] text-zinc-500 dark:text-zinc-400">
-        KOTs filtered by <code className="font-mono">production = {JSON.stringify(station)}</code> via{" "}
-        <code className="font-mono">GET /api/production-units/:unit_id/pending-kots</code> (where{" "}
-        <code className="font-mono">order_status ≠ Prepared</code>). Bump is idempotent — double-tap is safe.
-      </p>
+        {/* RIGHT — Wide Data Stream */}
+        <section className="col-span-12 flex min-h-[520px] flex-col lg:col-span-8">
+          <div className="flex-1 rounded-[2.5rem] border border-slate-200/50 bg-white p-6 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)] sm:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold tracking-tighter leading-none text-zinc-900">
+                  <ChefHat size={18} weight="light" className="text-zinc-900" /> Fire queue
+                  <span className="rounded-full bg-zinc-900 px-2.5 py-1 font-mono text-xs font-semibold tracking-tight text-white">
+                    {totalPending}
+                  </span>
+                </h2>
+                <p className="mt-1.5 max-w-[60ch] text-sm leading-5 text-zinc-500">
+                  <span className="font-mono tracking-tight text-zinc-900">{station}</span> · infinite stream{" "}
+                  <span className="font-mono text-xs tracking-tight">x 0% → -100%</span> — hover to read, bump to clear.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="hidden items-center gap-1.5 rounded-full bg-[#f9fafb] px-3 py-1.5 text-xs font-medium tracking-tight text-zinc-600 ring-1 ring-slate-200/50 sm:inline-flex">
+                  <Timer size={14} weight="light" /> {pendingOnly.length} pending · {preparing.length} firing
+                </span>
+                <Link
+                  href="/pos"
+                  className="inline-flex items-center gap-1 rounded-full border border-slate-200/60 bg-white px-3 py-1.5 text-xs font-medium tracking-tight text-zinc-700 hover:bg-zinc-50"
+                >
+                  Open POS
+                </Link>
+              </div>
+            </div>
+
+            {/* stream */}
+            <div className="mt-6">
+              {loading && totalPending === 0 ? (
+                <div className="flex gap-4 overflow-hidden">
+                  {[0, 1, 2].map((i) => (
+                    <TicketSkeleton key={i} index={i} />
+                  ))}
+                </div>
+              ) : totalPending === 0 ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 100, damping: 20 }}
+                  className="flex flex-col items-center justify-center rounded-[2rem] border border-dashed border-slate-200/70 bg-[#f9fafb] px-6 py-14 text-center"
+                >
+                  <span className="flex h-14 w-14 items-center justify-center rounded-full bg-white text-zinc-400 shadow-sm ring-1 ring-slate-200/50">
+                    <CookingPot size={24} weight="light" />
+                  </span>
+                  <div className="mt-4 text-base font-semibold tracking-tighter text-zinc-900">Kitchen clear</div>
+                  <div className="mx-auto mt-1 max-w-[32ch] text-sm leading-6 text-zinc-500">
+                    No pending KOTs for <span className="font-mono font-medium tracking-tight text-zinc-700">{station}</span>. Fire from POS to see tickets stream here.
+                  </div>
+                  <div className="mt-5 flex gap-2">
+                    <motion.button
+                      whileTap={{ scale: 0.98 }}
+                      onClick={fetchTickets}
+                      className="rounded-full bg-zinc-900 px-5 py-2 text-sm font-semibold tracking-tight text-white hover:bg-zinc-800"
+                    >
+                      Refresh
+                    </motion.button>
+                    <Link
+                      href="/pos"
+                      className="rounded-full border border-slate-200/60 bg-white px-5 py-2 text-sm font-medium tracking-tight text-zinc-700 hover:bg-zinc-50"
+                    >
+                      Go to POS
+                    </Link>
+                  </div>
+                </motion.div>
+              ) : totalPending > 2 ? (
+                // Wide Data Stream — perpetual carousel
+                <KotCarousel enabled>
+                  {tickets.map((kot, i) => (
+                    <TicketCard key={kot.id} kot={kot} onBump={handleBump} bumping={bumpingId === kot.id} index={i} />
+                  ))}
+                </KotCarousel>
+              ) : (
+                // Few tickets — static grid with stagger, not carousel
+                <motion.div
+                  className="flex flex-wrap gap-4"
+                  initial="hidden"
+                  animate="show"
+                  variants={{ hidden: {}, show: { transition: { staggerChildren: 0.08 } } }}
+                >
+                  {tickets.map((kot, i) => (
+                    <TicketCard key={kot.id} kot={kot} onBump={handleBump} bumping={bumpingId === kot.id} index={i} />
+                  ))}
+                </motion.div>
+              )}
+            </div>
+
+            {/* helper footer */}
+            <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-zinc-100 pt-4 text-xs">
+              <span className="inline-flex items-center gap-1.5 tracking-tight text-zinc-400">
+                <Fire size={12} weight="light" /> Stagger 80ms · spring 100/20 · layout · tactile bump
+              </span>
+              <span className="font-mono tracking-tight text-zinc-400">stream pauses on hover (scroll)</span>
+            </div>
+          </div>
+
+          {/* legibility strip — not a card: negative space */}
+          <p className="px-2 pt-4 text-center text-xs leading-5 tracking-tight text-zinc-400">
+            KOTs filtered by <span className="font-mono text-zinc-600">production = {JSON.stringify(station)}</span> ·{" "}
+            <span className="font-mono">GET /api/production-units/:id/pending-kots</span> · SSE{" "}
+            <span className="font-mono">kot.generated</span> → burst deduped · Poll fallback 10s
+          </p>
+        </section>
+      </div>
     </div>
   );
 }
