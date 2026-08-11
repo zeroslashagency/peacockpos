@@ -61,6 +61,20 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
+function getStoredCsrf(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return (
+      window.localStorage.getItem("peacock_csrf") ||
+      window.localStorage.getItem("x-csrf-token") ||
+      window.localStorage.getItem("csrf") ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
 function buildHeaders(opts?: RequestOptions, hasBody = true): Headers {
   const h = new Headers();
   if (hasBody) h.set("Content-Type", "application/json");
@@ -73,6 +87,12 @@ function buildHeaders(opts?: RequestOptions, hasBody = true): Headers {
   if (opts?.restaurant) {
     h.set("X-Restaurant", opts.restaurant);
     h.set("x-restaurant", opts.restaurant);
+  }
+  // auto-attach CSRF token for cookie-authenticated requests (stored by /login)
+  const csrf = getStoredCsrf();
+  if (csrf && !h.has("X-CSRF") && !h.has("x-csrf-token")) {
+    h.set("X-CSRF", csrf);
+    h.set("x-csrf-token", csrf);
   }
   if (opts?.headers) {
     for (const [k, v] of Object.entries(opts.headers)) h.set(k, v);
@@ -127,6 +147,7 @@ async function apiFetch<T>(
   const res = await fetch(url, {
     ...init,
     headers,
+    credentials: (init.credentials as RequestCredentials) ?? "include",
     signal: init.opts?.signal ?? init.signal,
   });
   if (!res.ok) {
@@ -1048,6 +1069,133 @@ export function newIdempotencyKey(): string {
   const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Auth — POST /api/auth/login, GET /api/auth/me, POST /api/auth/logout
+// Server sets HttpOnly Secure SameSite=Lax cookie `peacock_session` (JWT
+// sub, role, restaurant, branch) and returns X-CSRF header; client stores
+// X-CSRF in localStorage `peacock_csrf` and auto-attaches via buildHeaders.
+// ---------------------------------------------------------------------------
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface LoginResponse {
+  csrf?: string;
+  token?: string;
+  csrf_token?: string;
+  message?: string;
+  // server may also return user inline
+  user?: MeResponse;
+  email?: string;
+  role?: string;
+}
+
+export interface MeResponse {
+  email: string;
+  role: string;
+  restaurant?: string;
+  branch?: string;
+  name?: string;
+  user?: string;
+  sub?: string;
+  id?: string;
+}
+
+export function getCsrfToken(): string | null {
+  return getStoredCsrf();
+}
+
+export function setCsrfToken(token: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem("peacock_csrf", token);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearCsrfToken() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem("peacock_csrf");
+    window.localStorage.removeItem("x-csrf-token");
+    window.localStorage.removeItem("csrf");
+  } catch {
+    /* ignore */
+  }
+}
+
+export const authApi = {
+  async login(req: LoginRequest): Promise<LoginResponse & { _csrf?: string }> {
+    const url = `${apiBase()}/api/auth/login`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, application/problem+json",
+      },
+      body: JSON.stringify(req),
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const problem = await parseProblem(res);
+      throw new ApiError(problem);
+    }
+    const csrfHeader =
+      res.headers.get("X-CSRF") ||
+      res.headers.get("x-csrf-token") ||
+      res.headers.get("x-csrf") ||
+      res.headers.get("X-CSRF-Token") ||
+      null;
+    let body: LoginResponse | null = null;
+    const text = await res.text();
+    if (text) {
+      try {
+        body = JSON.parse(text) as LoginResponse;
+      } catch {
+        body = {};
+      }
+    } else {
+      body = {};
+    }
+    const csrfFromBody = body?.csrf || body?.token || body?.csrf_token || null;
+    const csrf = csrfHeader || csrfFromBody || null;
+    if (csrf) setCsrfToken(csrf);
+    return { ...(body ?? {}), _csrf: csrf ?? undefined };
+  },
+
+  me(opts?: RequestOptions): Promise<MeResponse> {
+    return apiFetch<MeResponse>("/api/auth/me", { opts });
+  },
+
+  async logout(): Promise<void> {
+    const url = `${apiBase()}/api/auth/logout`;
+    const csrf = getStoredCsrf();
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Accept: "application/json, application/problem+json",
+    };
+    if (csrf) {
+      headers["X-CSRF"] = csrf;
+      headers["x-csrf-token"] = csrf;
+    }
+    const res = await fetch(url, {
+      method: "POST",
+      headers,
+      credentials: "include",
+    });
+    clearCsrfToken();
+    if (!res.ok && res.status !== 204) {
+      // throw only if not already logged out; still clear local token
+      if (res.status !== 401) {
+        const problem = await parseProblem(res);
+        throw new ApiError(problem);
+      }
+    }
+  },
+};
 
 // Re-export money helpers for convenience
 export * from "./money";

@@ -349,10 +349,39 @@ mod tests {
     }
 
     fn app_with_storage(storage: Storage) -> Router {
-        routes().with_state(AppState::with_storage(Config::default(), storage))
+        crate::app::build_with_storage(Config::default(), storage)
+    }
+
+    async fn auth_cookie(app: &Router) -> String {
+        let body = serde_json::json!({"email":"owner@peacock.local","password":"dev"});
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/login")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "seed login must succeed for test auth");
+        let set_cookie = resp
+            .headers()
+            .get(axum::http::header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        set_cookie.split(';').next().unwrap().to_string()
     }
 
     async fn send(app: Router, request: Request<Body>) -> axum::response::Response {
+        app.oneshot(request).await.unwrap()
+    }
+
+    async fn send_authed(app: Router, mut request: Request<Body>) -> axum::response::Response {
+        let cookie = auth_cookie(&app).await;
+        request.headers_mut().insert(
+            axum::http::header::COOKIE,
+            cookie.parse().unwrap(),
+        );
         app.oneshot(request).await.unwrap()
     }
 
@@ -368,7 +397,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .uri("/api/tables")
@@ -389,7 +418,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .uri("/api/tables?room=Hall")
@@ -410,7 +439,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .uri("/api/tables?occupied=true")
@@ -431,7 +460,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .uri("/api/tables?room=Hall&occupied=false")
@@ -452,7 +481,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .uri("/api/tables/T-01")
@@ -475,7 +504,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .uri("/api/tables/T-99")
@@ -494,7 +523,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .method("POST")
@@ -518,7 +547,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .method("POST")
@@ -542,7 +571,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .method("POST")
@@ -572,7 +601,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .method("POST")
@@ -600,7 +629,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .method("POST")
@@ -624,7 +653,7 @@ mod tests {
         clean_and_seed(&storage).await;
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .method("POST")
@@ -712,7 +741,7 @@ mod tests {
 
         let app = app_with_storage(storage.clone());
 
-        let response = send(
+        let response = send_authed(
             app,
             Request::builder()
                 .method("POST")
@@ -731,5 +760,24 @@ mod tests {
             text.contains("separate active orders") || text.contains("MultipleActiveOrders") || text.contains("active orders"),
             "expected MultipleActiveOrders message, got: {text}"
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_tables_requires_auth() {
+        let db = test_db().await;
+        let storage = db.storage().clone();
+        clean_and_seed(&storage).await;
+        let app = app_with_storage(storage.clone());
+
+        let response = send(
+            app,
+            Request::builder()
+                .uri("/api/tables")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 }
