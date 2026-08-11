@@ -9,8 +9,11 @@
  * - no auth (Wave 3 auth-less)
  */
 
-export const API_BASE_URL =
+const _rawApiBase =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
+const _cleanedApiBase = _rawApiBase.replace(/^=+/, "").trim();
+// Force same-origin (rewrites) for http:// to avoid https→http mixed-content on Vercel
+export const API_BASE_URL = _cleanedApiBase.startsWith("http://") ? "" : _cleanedApiBase;
 
 export function apiBase(): string {
   return API_BASE_URL.replace(/\/$/, "");
