@@ -10,8 +10,7 @@
  */
 
 export const API_BASE_URL =
-  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) ||
-  "http://100.72.103.1:8080";
+  (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) || "";
 
 export function apiBase(): string {
   return API_BASE_URL.replace(/\/$/, "");
