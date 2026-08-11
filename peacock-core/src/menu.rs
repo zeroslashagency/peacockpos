@@ -223,28 +223,48 @@ pub fn resolve_menu(
 
     let menu = menu_name.ok_or(Error::NoActiveMenu)?;
 
-    // Fetch items and course sequences.
-    let mut items = repo.menu_items(&menu)?;
+    // Fetch items and course sequences, then apply the shared ordering.
+    let items = repo.menu_items(&menu)?;
     let sequences = repo.course_sequences()?;
 
-    // Materialize course_sequence onto each item.
+    Ok(ResolvedMenu {
+        menu,
+        items: order_menu_items(items, &sequences),
+    })
+}
+
+/// Materialise `course_sequence` onto each item and sort the menu for display.
+///
+/// Extracted from [`resolve_menu`] because two callers need the identical order: the
+/// resolution endpoint and the "items for a menu I already know" endpoint
+/// (`GET /api/menu/:menu_id/items`). Two copies of this sort would let the same menu come
+/// back in two different orders depending on which call the POS made, which is a defect a
+/// user sees and no test comparing one endpoint against itself would catch.
+///
+/// The order is: `course_sequence` ascending, items in an unsequenced or absent course
+/// last, then `item_name` ascending within each group. A course missing from `sequences`
+/// is by contract undefined-sequence, and its items sort by name only
+/// ([`MenuResolutionRepo::course_sequences`]).
+pub fn order_menu_items(
+    mut items: Vec<ResolvedMenuItem>,
+    sequences: &HashMap<MenuCourseName, i32>,
+) -> Vec<ResolvedMenuItem> {
     for item in &mut items {
         if let Some(ref course) = item.course {
             item.course_sequence = sequences.get(course).copied();
         }
     }
 
-    // Sort: course_sequence ascending (None last), then item_name ascending.
-    items.sort_by(|a, b| {
-        match (a.course_sequence, b.course_sequence) {
-            (Some(seq_a), Some(seq_b)) => seq_a.cmp(&seq_b).then_with(|| a.item_name.cmp(&b.item_name)),
-            (Some(_), None) => std::cmp::Ordering::Less,  // course items before no-course
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => a.item_name.cmp(&b.item_name), // both no course → name order
+    items.sort_by(|a, b| match (a.course_sequence, b.course_sequence) {
+        (Some(seq_a), Some(seq_b)) => {
+            seq_a.cmp(&seq_b).then_with(|| a.item_name.cmp(&b.item_name))
         }
+        (Some(_), None) => std::cmp::Ordering::Less, // course items before no-course
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => a.item_name.cmp(&b.item_name), // both no course → name order
     });
 
-    Ok(ResolvedMenu { menu, items })
+    items
 }
 
 #[cfg(test)]

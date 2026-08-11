@@ -485,6 +485,20 @@ mod tests {
     }
 
     impl TableRepo for FakeTables {
+        fn list_all(&self, room: Option<&RoomName>, occupied: Option<bool>) -> Result<Vec<Table>> {
+            let mut filtered: Vec<Table> = self.rows.clone();
+            
+            if let Some(r) = room {
+                filtered.retain(|t| &t.restaurant_room == r);
+            }
+            
+            if let Some(o) = occupied {
+                filtered.retain(|t| t.occupied == o);
+            }
+            
+            Ok(filtered)
+        }
+
         fn list_by_room(&self, room: &RoomName) -> Result<Vec<Table>> {
             Ok(self
                 .rows

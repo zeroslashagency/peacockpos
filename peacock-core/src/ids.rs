@@ -102,3 +102,11 @@ id_newtype!(
     /// Frappe `User`
     UserName
 );
+id_newtype!(
+    /// POS Opening Entry (Shift)
+    ShiftName
+);
+id_newtype!(
+    /// POS Terminal/Register
+    TerminalName
+);

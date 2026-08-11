@@ -17,6 +17,8 @@ use std::collections::HashMap;
 pub trait TableRepo {
     /// All tables in a room. One query — the merge BFS must not re-query per hop.
     fn list_by_room(&self, room: &RoomName) -> Result<Vec<Table>>;
+    /// All tables across all rooms. Supports optional filtering by room and occupied state.
+    fn list_all(&self, room: Option<&RoomName>, occupied: Option<bool>) -> Result<Vec<Table>>;
     fn get(&self, name: &TableName) -> Result<Table>;
 }
 
@@ -113,4 +115,163 @@ pub trait PriceRepo {
     /// COGS prices from the **buying** price list (ury_daily_p_and_l.py:30),
     /// NOT from stock valuation — a different cost basis that would diverge.
     fn item_price(&self, item: &ItemCode, price_list: &PriceListName) -> Result<Option<Money>>;
+}
+
+/// POS shift (POS Opening Entry).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Shift {
+    pub name: ShiftName,
+    pub terminal: TerminalName,
+    pub opened_at: chrono::DateTime<chrono::Utc>,
+    pub closed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub opened_by: UserName,
+    pub business_day: chrono::NaiveDate,
+}
+
+/// Z-report for a closed shift.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ZReport {
+    pub shift_name: ShiftName,
+    pub terminal: TerminalName,
+    pub business_day: chrono::NaiveDate,
+    pub opened_at: chrono::DateTime<chrono::Utc>,
+    pub closed_at: chrono::DateTime<chrono::Utc>,
+    pub invoice_count: i64,
+    pub cash_total: Money,
+    pub card_total: Money,
+    pub total_revenue: Money,
+    pub cash_threshold_warning: bool, // true if cash >= ₹10,000 (CGST Rule 56)
+}
+
+pub trait ShiftRepo {
+    /// Create a new shift. Returns error if one is already open on this terminal.
+    fn open_shift(
+        &self,
+        terminal: &TerminalName,
+        opened_by: &UserName,
+        business_day: chrono::NaiveDate,
+    ) -> Result<Shift>;
+
+    /// Get the currently open shift for a terminal, if any.
+    fn get_current_shift(&self, terminal: &TerminalName) -> Result<Option<Shift>>;
+
+    /// Close a shift and generate Z-report.
+    /// Calculates totals from invoices in the shift's business day range.
+    fn close_shift(
+        &self,
+        shift_name: &ShiftName,
+        cutoff_hour: u32,
+        tz: chrono_tz::Tz,
+    ) -> Result<ZReport>;
+
+    /// Get Z-report for a closed shift.
+    fn get_report(&self, shift_name: &ShiftName) -> Result<ZReport>;
+
+    /// Get shift by name.
+    fn get(&self, shift_name: &ShiftName) -> Result<Shift>;
+
+    /// List shifts with pagination and filters.
+    fn list_shifts(
+        &self,
+        terminal: Option<&TerminalName>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<Shift>>;
+}
+
+/// Aggregator order repository (Lane W1-F).
+///
+/// Handles third-party delivery platform (Swiggy/Zomato) webhook orders:
+/// - Idempotent insert (replay-safe)
+/// - Accept (creates internal order + invoice)
+/// - Reject (terminal status)
+/// - Settlement reconciliation queries
+pub trait AggregatorRepo {
+    /// Insert a new aggregator order with items.
+    /// Idempotent on aggregator_order_id: replaying returns the existing order.
+    /// Returns the internal order ID.
+    fn insert_order(&self, order: &AggregatorOrderInput) -> Result<String>;
+
+    /// Find an aggregator order by internal ID.
+    fn find_order(&self, id: &str) -> Result<Option<AggregatorOrderData>>;
+
+    /// Accept an order, linking it to internal order + invoice.
+    /// Returns error if not in Pending status.
+    fn accept_order(
+        &self,
+        id: &str,
+        internal_order_id: i64,
+        internal_invoice_id: &InvoiceName,
+    ) -> Result<()>;
+
+    /// Reject an order with a reason.
+    /// Returns error if not in Pending status.
+    fn reject_order(&self, id: &str, reason: &str) -> Result<()>;
+
+    /// List settlements for reconciliation, filtered by date range and optional platform.
+    fn list_settlements(
+        &self,
+        start_date: chrono::NaiveDate,
+        end_date: chrono::NaiveDate,
+        platform: Option<&str>,
+    ) -> Result<Vec<SettlementData>>;
+}
+
+/// Input for inserting an aggregator order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AggregatorOrderInput {
+    pub aggregator_order_id: String,
+    pub platform: String,
+    pub customer_name: String,
+    pub customer_phone: Option<String>,
+    pub total: Money,
+    pub ordered_at: chrono::DateTime<chrono::Utc>,
+    pub instructions: Option<String>,
+    pub items: Vec<AggregatorOrderItemInput>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AggregatorOrderItemInput {
+    pub item_code: String,
+    pub item_name: String,
+    pub quantity: rust_decimal::Decimal,
+    pub rate: Money,
+    pub special_instructions: Option<String>,
+}
+
+/// Aggregator order data returned by the repo.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AggregatorOrderData {
+    pub id: String,
+    pub aggregator_order_id: String,
+    pub platform: String,
+    pub customer_name: String,
+    pub customer_phone: Option<String>,
+    pub total: Money,
+    pub ordered_at: chrono::DateTime<chrono::Utc>,
+    pub status: String,
+    pub internal_order_id: Option<i64>,
+    pub internal_invoice_id: Option<InvoiceName>,
+    pub instructions: Option<String>,
+    pub items: Vec<AggregatorOrderItemData>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AggregatorOrderItemData {
+    pub item_code: String,
+    pub item_name: String,
+    pub quantity: rust_decimal::Decimal,
+    pub rate: Money,
+}
+
+/// Settlement data for reconciliation.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SettlementData {
+    pub id: String,
+    pub platform: String,
+    pub settlement_date: chrono::NaiveDate,
+    pub total_orders: i32,
+    pub gross_amount: Money,
+    pub commission: Money,
+    pub net_amount: Money,
 }

@@ -5,6 +5,9 @@
 # never commit these
 .env
 .env.*
+# ...except the template, which carries no secrets and is the documentation for what a
+# real .env has to contain. The negation must follow the pattern that would exclude it.
+!.env.example
 *.pem
 *.key
 privateKey.js

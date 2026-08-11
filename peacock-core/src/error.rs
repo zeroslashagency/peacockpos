@@ -56,6 +56,16 @@ pub enum Error {
         field: String,
         raw: String,
     },
+
+    // ---- shift management ----
+    #[error("shift not found: {0}")]
+    ShiftNotFound(ShiftName),
+
+    #[error("a shift is already open on terminal {0}")]
+    ShiftAlreadyOpen(TerminalName),
+
+    #[error("no open shift found on terminal {0}")]
+    NoOpenShift(TerminalName),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

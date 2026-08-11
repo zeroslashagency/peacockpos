@@ -1,5 +1,5 @@
 [workspace]
-members = ["peacock-core", "peacock-parity"]
+members = ["peacock-api", "peacock-core", "peacock-parity", "peacock-storage"]
 resolver = "2"
 
 [workspace.package]

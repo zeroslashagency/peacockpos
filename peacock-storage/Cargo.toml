@@ -1,0 +1,39 @@
+[package]
+name = "peacock-storage"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PostgreSQL storage layer for Peacock POS. Connection pool, migrations, core schema."
+
+[dependencies]
+peacock-core = { path = "../peacock-core" }
+
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-native-tls",
+    "postgres",
+    "json",
+    "chrono",
+    "rust_decimal",
+    "uuid",
+    "macros",
+    "migrate",
+] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+thiserror = "1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.9"
+rust_decimal = { version = "1.36", features = ["serde-with-str"] }
+tracing = "0.1"
+# Lane 2F: idempotency keys are UUIDs, in the schema and in the
+# `peacock_core::invoicing::IdempotencyStore` port signature, so this is a runtime
+# dependency of the invoice repository and not just of its tests.
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+[dev-dependencies]
+rust_decimal_macros = "1.36"
+pretty_assertions = "1.4"
+uuid = { version = "1.10", features = ["v4"] }

@@ -294,7 +294,12 @@ fn run_cogs_fixture_rust(fx: &CogsFixture) -> Result<CogsResult> {
 // ============================================================================
 
 fn run_python_reference(fixtures: &[Fixture]) -> Result<Vec<PythonResult>> {
-    let script_path = PathBuf::from("scripts/parity_reference.py");
+    // Support running from workspace root or peacock-parity/
+    let script_path = if PathBuf::from("scripts/parity_reference.py").exists() {
+        PathBuf::from("scripts/parity_reference.py")
+    } else {
+        PathBuf::from("../scripts/parity_reference.py")
+    };
     if !script_path.exists() {
         anyhow::bail!(
             "Python reference script not found at {}",
@@ -304,31 +309,82 @@ fn run_python_reference(fixtures: &[Fixture]) -> Result<Vec<PythonResult>> {
 
     let fixture_json = serde_json::to_string(fixtures)?;
 
-    let mut child = Command::new("python3")
-        .arg(&script_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("spawning python3")?;
+    // Try multiple python interpreters: macOS Homebrew python@3.14 is currently broken (empty stdout),
+    // so fall back to system python and older Homebrew versions. The first that yields valid JSON wins.
+    let candidates = [
+        "python3",
+        "/usr/bin/python3",
+        "/opt/homebrew/bin/python3.13",
+        "/opt/homebrew/bin/python3.12",
+        "python",
+    ];
 
-    child
-        .stdin
-        .as_mut()
-        .unwrap()
-        .write_all(fixture_json.as_bytes())?;
+    let mut last_err: Option<anyhow::Error> = None;
+    for py in candidates {
+        let mut child = match Command::new(py)
+            .arg(&script_path)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                last_err = Some(anyhow::Error::new(e).context(format!("spawning {py}")));
+                continue;
+            }
+        };
 
-    let output = child.wait_with_output()?;
+        // Write fixtures and close stdin so Python sees EOF.
+        if let Some(mut stdin) = child.stdin.take() {
+            if let Err(e) = stdin.write_all(fixture_json.as_bytes()) {
+                last_err = Some(anyhow::Error::new(e).context(format!("writing to {py} stdin")));
+                let _ = child.wait();
+                continue;
+            }
+            // stdin dropped here (closed)
+        }
 
-    if !output.status.success() {
-        eprintln!("{}", String::from_utf8_lossy(&output.stderr));
-        anyhow::bail!("Python reference failed with status {}", output.status);
+        let output = match child.wait_with_output() {
+            Ok(o) => o,
+            Err(e) => {
+                last_err = Some(anyhow::Error::new(e).context(format!("waiting for {py}")));
+                continue;
+            }
+        };
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            last_err = Some(anyhow::anyhow!(
+                "{py} failed with status {}: {}",
+                output.status,
+                stderr
+            ));
+            continue;
+        }
+
+        if output.stdout.is_empty() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            last_err = Some(anyhow::anyhow!(
+                "{py} produced empty stdout (stderr: {})",
+                stderr
+            ));
+            continue;
+        }
+
+        match serde_json::from_slice::<Vec<PythonResult>>(&output.stdout) {
+            Ok(results) => return Ok(results),
+            Err(e) => {
+                let stdout_snippet = String::from_utf8_lossy(&output.stdout[..output.stdout.len().min(500)]).to_string();
+                last_err = Some(anyhow::Error::new(e).context(format!(
+                    "parsing {py} output (first 500 chars: {stdout_snippet:?})"
+                )));
+                continue;
+            }
+        }
     }
 
-    let results: Vec<PythonResult> = serde_json::from_slice(&output.stdout)
-        .context("parsing Python output")?;
-
-    Ok(results)
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("no python interpreter found")))
 }
 
 // ============================================================================
@@ -461,7 +517,12 @@ fn main() -> Result<()> {
     println!();
 
     // Load fixtures
-    let fixture_dir = PathBuf::from("peacock-parity/fixtures");
+    // When run from workspace root
+    let fixture_dir = if PathBuf::from("peacock-parity/fixtures").exists() {
+        PathBuf::from("peacock-parity/fixtures")
+    } else {
+        PathBuf::from("fixtures")
+    };
     if !fixture_dir.exists() {
         anyhow::bail!("Fixture directory not found: {}", fixture_dir.display());
     }
