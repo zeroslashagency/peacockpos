@@ -122,15 +122,7 @@ async fn merge_tables(
     // Phase 2 integration (Lane 4A-4)
     let storage = state.storage();
     let table_repo = peacock_storage::repos::PostgresTableRepo::new(storage.pool().clone());
-    
-    // Fake OrderRepo for now (no active orders check)
-    struct FakeOrderRepo;
-    impl peacock_core::ports::OrderRepo for FakeOrderRepo {
-        fn count_separate_active(&self, _tables: &[TableName]) -> peacock_core::error::Result<usize> {
-            Ok(0)
-        }
-    }
-    let order_repo = FakeOrderRepo;
+    let order_repo = storage.order_repo();
 
     let anchor = TableName::from(anchor_id.as_str());
     let targets: Vec<TableName> = req.targets.iter().map(|s| TableName::from(s.as_str())).collect();
@@ -287,23 +279,18 @@ mod tests {
         let pool = storage.pool();
 
         // Clean child tables first so FKs don't block table deletion.
-        for tbl in &[
-            "order_items",
-            "orders",
-            "invoice_lines",
-            "idempotency_keys",
-            "order_idempotency_keys",
-            "kot_items",
-            "kots",
-            "aggregator_order_items",
-            "aggregator_orders",
-            "aggregator_settlement_orders",
-            "aggregator_settlements",
-            "invoices",
-        ] {
-            let q = format!("DELETE FROM {}", tbl);
-            let _ = sqlx::query(&q).execute(pool).await;
-        }
+        sqlx::query("DELETE FROM order_items").execute(pool).await.ok();
+        sqlx::query("DELETE FROM orders").execute(pool).await.ok();
+        sqlx::query("DELETE FROM invoice_lines").execute(pool).await.ok();
+        sqlx::query("DELETE FROM idempotency_keys").execute(pool).await.ok();
+        sqlx::query("DELETE FROM order_idempotency_keys").execute(pool).await.ok();
+        sqlx::query("DELETE FROM kot_items").execute(pool).await.ok();
+        sqlx::query("DELETE FROM kots").execute(pool).await.ok();
+        sqlx::query("DELETE FROM aggregator_order_items").execute(pool).await.ok();
+        sqlx::query("DELETE FROM aggregator_orders").execute(pool).await.ok();
+        sqlx::query("DELETE FROM aggregator_settlement_orders").execute(pool).await.ok();
+        sqlx::query("DELETE FROM aggregator_settlements").execute(pool).await.ok();
+        sqlx::query("DELETE FROM invoices").execute(pool).await.ok();
         sqlx::query("DELETE FROM tables")
             .execute(pool)
             .await
@@ -649,5 +636,100 @@ mod tests {
         .await;
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn merge_tables_rejects_multiple_active_orders() {
+        let db = test_db().await;
+        let storage = db.storage().clone();
+        // Use a clean slate without the default merged_with between T-01/T-02,
+        // otherwise the AlreadyMerged guard fires before the active-order guard.
+        // Re-seed tables fresh and then add two Draft unprinted invoices.
+        {
+            let pool = storage.pool();
+            sqlx::query("DELETE FROM order_items").execute(pool).await.ok();
+            sqlx::query("DELETE FROM orders").execute(pool).await.ok();
+            sqlx::query("DELETE FROM invoice_lines").execute(pool).await.ok();
+            sqlx::query("DELETE FROM idempotency_keys").execute(pool).await.ok();
+            sqlx::query("DELETE FROM order_idempotency_keys").execute(pool).await.ok();
+            sqlx::query("DELETE FROM kot_items").execute(pool).await.ok();
+            sqlx::query("DELETE FROM kots").execute(pool).await.ok();
+            sqlx::query("DELETE FROM aggregator_order_items").execute(pool).await.ok();
+            sqlx::query("DELETE FROM aggregator_orders").execute(pool).await.ok();
+            sqlx::query("DELETE FROM aggregator_settlement_orders").execute(pool).await.ok();
+            sqlx::query("DELETE FROM aggregator_settlements").execute(pool).await.ok();
+            sqlx::query("DELETE FROM invoices").execute(pool).await.ok();
+            sqlx::query("DELETE FROM tables").execute(pool).await.unwrap();
+            sqlx::query(
+                "INSERT INTO rooms (name, branch, room_type) VALUES ('Hall', 'Main', 'AC') ON CONFLICT (name) DO NOTHING",
+            )
+            .execute(pool)
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO restaurants (name, company, branch, pos_profile, invoice_series_prefix, default_room) VALUES ('Test Restaurant', 'Test Co', 'Main', 'Test POS', 'TST-', 'Hall') ON CONFLICT (name) DO NOTHING",
+            )
+            .execute(pool)
+            .await
+            .unwrap();
+            for name in ["T-01", "T-02"] {
+                sqlx::query(
+                    r#"
+                    INSERT INTO tables (
+                        name, no_of_seats, minimum_seating, restaurant, restaurant_room,
+                        branch, is_take_away, occupied, latest_invoice_time, table_shape,
+                        layout_x, layout_y, layout_width, layout_height, merged_with
+                    ) VALUES ($1, 4, 1, 'Test Restaurant', 'Hall', 'Main', false, false, NULL, NULL, 0, 0, 0, 0, '[]'::jsonb)
+                    "#,
+                )
+                .bind(name)
+                .execute(pool)
+                .await
+                .unwrap();
+            }
+            // Two separate active orders: Draft + not printed on each table.
+            for (inv_name, table, series_no) in [
+                ("TST-2627-000001", "T-01", 1_i64),
+                ("TST-2627-000002", "T-02", 2_i64),
+            ] {
+                sqlx::query(
+                    r#"
+                    INSERT INTO invoices (
+                        name, naming_series, fiscal_year, series_number, status,
+                        restaurant, restaurant_table, restaurant_room, branch, customer,
+                        posted_at, business_day, supply_type, invoice_printed
+                    ) VALUES ($1, 'TST-', '2627', $2, 'Draft', 'Test Restaurant', $3, 'Hall', 'Main', 'Walk-in', now(), current_date, 'Intrastate', false)
+                    "#,
+                )
+                .bind(inv_name)
+                .bind(series_no)
+                .bind(table)
+                .execute(pool)
+                .await
+                .unwrap();
+            }
+        }
+
+        let app = app_with_storage(storage.clone());
+
+        let response = send(
+            app,
+            Request::builder()
+                .method("POST")
+                .uri("/api/tables/T-01/merge")
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"targets": ["T-02"]}"#))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8_lossy(&bytes);
+        // DomainError::MultipleActiveOrders -> ProblemDetails with 409
+        assert!(
+            text.contains("separate active orders") || text.contains("MultipleActiveOrders") || text.contains("active orders"),
+            "expected MultipleActiveOrders message, got: {text}"
+        );
     }
 }

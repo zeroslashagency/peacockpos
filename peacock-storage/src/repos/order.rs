@@ -945,9 +945,11 @@ impl OrderRepo for PgOrderRepo {
         // The port traits are synchronous on purpose (`ports.rs`), so the async boundary
         // is crossed here. `repos::blocking::block_on` is the one place that knows how:
         // it parks the worker with `block_in_place` so a sibling keeps driving the
-        // reactor the pool connection depends on, and it panics with an actionable
-        // message on a current-thread runtime rather than deadlocking.
-        block_on(self.count_separate_active_async(tables)).map_err(to_domain_error)
+        // reactor the pool connection depends on, and it returns an error on a
+        // current-thread runtime rather than deadlocking.
+        block_on(self.count_separate_active_async(tables))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 }
 

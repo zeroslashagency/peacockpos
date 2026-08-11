@@ -16,6 +16,7 @@ use crate::dto::aggregator::{
 };
 use crate::error::ApiError;
 use crate::state::AppState;
+use rust_decimal::prelude::ToPrimitive;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -225,22 +226,23 @@ async fn accept_order(
         .iter()
         .map(|ai| {
             // OrderItem qty is i32 (Int upstream). Round fractional quantities.
-            let qty = ai
+            let qty: i32 = ai
                 .quantity
                 .round()
-                .to_string()
-                .parse::<i32>()
-                .unwrap_or(1)
+                .to_i32()
+                .ok_or_else(|| {
+                    ApiError::invalid_input(format!("quantity {} overflows i32", ai.quantity))
+                })?
                 .max(1);
-            OrderItem {
+            Ok::<OrderItem, ApiError>(OrderItem {
                 item: ItemCode::from(ai.item_code.as_str()),
                 item_name: ai.item_name.clone(),
                 qty,
                 rate: ai.rate,
                 comments: ai.special_instructions.clone(),
-            }
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, _>>()?;
 
     let form = peacock_core::model::UryOrderForm {
         take_away: true,
@@ -815,8 +817,7 @@ mod tests {
 
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let settlements: Vec<Settlement> = serde_json::from_slice(&bytes).unwrap();
-        // Should be a valid array (may be empty or contain seeded data)
-        let _ = settlements.len();
+        assert!(settlements.is_empty(), "expected empty settlements, got {:?}", settlements);
     }
 
     #[test]

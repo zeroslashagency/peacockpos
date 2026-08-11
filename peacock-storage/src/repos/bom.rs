@@ -226,7 +226,9 @@ impl PgBomRepo {
 impl BomRepo for PgBomRepo {
     /// Blocking bridge over [`Self::find_for_item_async`]. See `super::blocking`.
     fn find_for_item(&self, item: &ItemCode) -> DomainResult<Option<Bom>> {
-        block_on(self.find_for_item_async(item)).map_err(to_domain_error)
+        block_on(self.find_for_item_async(item))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 }
 

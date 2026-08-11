@@ -40,20 +40,26 @@ use std::sync::OnceLock;
 
 use tokio::runtime::{Builder, Handle, Runtime, RuntimeFlavor};
 
+use crate::error::StorageError;
+
 /// Runtime used only when the caller has none of its own.
 ///
 /// One worker: the caller is blocked on the result anyway, so more would sit idle. Built on
 /// first use, so a process that only ever calls the async methods never pays for it.
-fn owned() -> &'static Runtime {
+fn owned() -> Result<&'static Runtime, StorageError> {
     static OWNED: OnceLock<Runtime> = OnceLock::new();
-    OWNED.get_or_init(|| {
-        Builder::new_multi_thread()
-            .worker_threads(1)
-            .thread_name("peacock-storage-sync")
-            .enable_all()
-            .build()
-            .expect("building the storage sync-bridge runtime")
-    })
+    if let Some(rt) = OWNED.get() {
+        return Ok(rt);
+    }
+    let rt = Builder::new_multi_thread()
+        .worker_threads(1)
+        .thread_name("peacock-storage-sync")
+        .enable_all()
+        .build()
+        .map_err(|e| StorageError::Internal(format!("building the storage sync-bridge runtime: {e}")))?;
+    // `set` races are harmless: another thread won, we use theirs.
+    let _ = OWNED.set(rt);
+    Ok(OWNED.get().expect("runtime just initialized"))
 }
 
 /// Run `fut` to completion, blocking the calling thread.
@@ -61,13 +67,15 @@ fn owned() -> &'static Runtime {
 /// The future may borrow from the caller, which is what makes
 /// `block_on(self.thing_async(arg))` the natural call shape at every port implementation.
 ///
-/// # Panics
+/// # Errors
 ///
-/// If called from inside a **current-thread** runtime. There is no correct behaviour
-/// available there: blocking it stalls the reactor the query needs, and moving the query to
-/// another runtime leaves its connection unpolled. Annotate the test
-/// `#[tokio::test(flavor = "multi_thread")]`, or call the `*_async` method directly.
-pub fn block_on<F>(fut: F) -> F::Output
+/// Returns `StorageError::Internal` if called from inside a **current-thread** runtime
+/// or if the fallback runtime cannot be built. There is no correct blocking behaviour
+/// available on a current-thread runtime: blocking it stalls the reactor the query
+/// needs, and moving the query to another runtime leaves its connection unpolled.
+/// Annotate the test `#[tokio::test(flavor = "multi_thread")]`, or call the
+/// `*_async` method directly.
+pub fn block_on<F>(fut: F) -> Result<F::Output, StorageError>
 where
     F: Future,
 {
@@ -75,19 +83,24 @@ where
         // Inside a runtime: park this worker and let a sibling drive the reactor, so the
         // pool connection this future is waiting on keeps being polled.
         Ok(handle) => {
-            assert!(
-                handle.runtime_flavor() != RuntimeFlavor::CurrentThread,
-                "peacock-storage: a synchronous repository method was called from a \
-                 current-thread tokio runtime. Blocking here would stall the reactor that \
-                 drives the pool connection the query needs, so there is nothing safe to \
-                 do. Use #[tokio::test(flavor = \"multi_thread\")], or call the *_async \
-                 method instead."
-            );
-            tokio::task::block_in_place(|| handle.block_on(fut))
+            if handle.runtime_flavor() == RuntimeFlavor::CurrentThread {
+                return Err(StorageError::Internal(
+                    "peacock-storage: a synchronous repository method was called from a \
+                     current-thread tokio runtime. Blocking here would stall the reactor that \
+                     drives the pool connection the query needs, so there is nothing safe to \
+                     do. Use #[tokio::test(flavor = \"multi_thread\")], or call the *_async \
+                     method instead."
+                        .to_string(),
+                ));
+            }
+            Ok(tokio::task::block_in_place(|| handle.block_on(fut)))
         }
         // No ambient runtime: use ours. Connections opened through it are registered with
         // it, so there is no cross-runtime problem to avoid.
-        Err(_) => owned().block_on(fut),
+        Err(_) => {
+            let rt = owned()?;
+            Ok(rt.block_on(fut))
+        }
     }
 }
 
@@ -97,12 +110,12 @@ mod tests {
 
     #[test]
     fn works_outside_any_runtime() {
-        assert_eq!(block_on(async { 6 * 7 }), 42);
+        assert_eq!(block_on(async { 6 * 7 }).unwrap(), 42);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn works_inside_a_multi_thread_runtime() {
-        assert_eq!(block_on(async { 6 * 7 }), 42);
+        assert_eq!(block_on(async { 6 * 7 }).unwrap(), 42);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -111,26 +124,37 @@ mod tests {
         // bound would reject this and force a clone at every call site.
         let owned = vec![1_u32, 2, 3];
         let borrowed: &[u32] = &owned;
-        assert_eq!(block_on(async { borrowed.iter().sum::<u32>() }), 6);
+        assert_eq!(
+            block_on(async { borrowed.iter().sum::<u32>() }).unwrap(),
+            6
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn nested_calls_do_not_deadlock() {
         // COGS calls find_for_item once per BOM line, each through this bridge, and a
         // bundle line's BOM walk nests one inside another's stack frame.
-        let total = block_on(async { block_on(async { 20 }) + 22 });
+        let total = block_on(async { block_on(async { 20 }).unwrap() + 22 }).unwrap();
         assert_eq!(total, 42);
     }
 
     #[test]
-    #[should_panic(expected = "current-thread tokio runtime")]
-    fn current_thread_runtime_panics_with_an_actionable_message() {
-        // Documented as a panic rather than left to fail as a pool timeout: a timeout here
-        // reads as "the database is slow", which sends the reader in the wrong direction.
-        tokio::runtime::Builder::new_current_thread()
+    fn current_thread_runtime_returns_error_with_actionable_message() {
+        // Previously documented as a panic; now returns `StorageError::Internal` so the
+        // handler can map it to a 500 instead of aborting the worker thread. A timeout
+        // here would read as "the database is slow", which sends the reader in the wrong
+        // direction.
+        let result = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("current-thread runtime")
             .block_on(async { block_on(async { 1 }) });
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("current-thread tokio runtime"),
+            "error should mention current-thread runtime, got: {err}"
+        );
+        assert!(matches!(err, StorageError::Internal(_)));
     }
 }

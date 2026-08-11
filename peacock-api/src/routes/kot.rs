@@ -362,83 +362,234 @@ mod tests {
     }
 
     // -----------------------------------------------------------------------
-    // Without a database
+    // Validation vs storage — Lane W1-A split
     // -----------------------------------------------------------------------
     //
-    // `Config::default()` carries no pool, so these tests pin the no-storage behaviour and
-    // nothing else. Before Lane 4A-3 the same requests returned stub successes — an empty
-    // `kots` array, a 404 for every id — which a kitchen display would render as "no work
-    // to do" and a client would read as "that ticket does not exist". Both are wrong
-    // answers to "the database is not there", so they are now 503s.
+    // `Config::default()` *used* to carry no pool, so the test that lived here asserted
+    // 500 for every valid request — "the database is not there". Since Lane W1-A
+    // `app::build(Config::default())` is `build_with_storage` over
+    // `crate::testing::shared_storage()` — a real, migrated Postgres — a valid
+    // `POST /api/kot/generate` now succeeds (200) and routes to real stations, while
+    // invalid payloads still fail at validation with 400 before any query is issued.
     //
-    // The behaviour *with* a pool — real routing, real tickets, real kitchen queue — is in
-    // `peacock-api/tests/invoice_kot_postgres.rs`, which needs a server and skips without
-    // one. Validation still runs before the storage check, so the payload tests above hold
-    // either way.
+    // So the old `every_endpoint_reports_storage_unavailable_without_a_pool` is split:
+    // - `validation_tests_still_return_400_without_db` pins the validation path that
+    //   never needs a DB and must remain 4xx even though a pool now exists.
+    // - `storage_tests_succeed_with_db` drives the happy path against an isolated
+    //   `TestDb` (like `peacock-api/src/routes/invoices.rs`) and asserts persisted rows,
+    //   proving the handler reaches Postgres rather than faking a 500.
+    //
+    // The behaviour *with* a shared pool — real routing, real tickets, real kitchen
+    // queue — is also exercised in `peacock-api/tests/invoice_kot_postgres.rs`, which
+    // needs a server and skips without one.
 
-    /// Every KOT endpoint needs storage, so each reports unavailable without it.
+    /// Validation still runs before any storage access, so these invalid payloads must
+    /// be 4xx even though `app::build` now carries `shared_storage`.
     #[tokio::test]
-    async fn every_endpoint_reports_storage_unavailable_without_a_pool() {
-        let cases: Vec<(&str, &str, Option<serde_json::Value>)> = vec![
+    async fn validation_tests_still_return_400_without_db() {
+        let cases: Vec<(&str, serde_json::Value)> = vec![
             (
-                "POST",
-                "/api/kot/generate",
-                Some(serde_json::json!({
+                "empty items",
+                serde_json::json!({
                     "invoice": "ACC-PSINV-2026-00042",
                     "branch": "Peacock - Main",
                     "naming_series": "KOT-",
                     "date": "2026-07-28",
-                    // qty is a string: `Decimal` on the wire, never a JSON number, for the
-                    // same reason money is (`dto/invoice.rs`) — a fractional quantity
-                    // routed through IEEE-754 in a JS client comes back corrupted.
-                    "items": [{"item_code": "CURRY", "item_name": "Chicken Curry", "qty": "2"}]
-                })),
-            ),
-            ("GET", "/api/kot/KOT-2026-00001", None),
-            (
-                "GET",
-                "/api/production-units/Hot%20Kitchen/pending-kots",
-                None,
+                    "items": []
+                }),
             ),
             (
-                "POST",
-                "/api/kot/KOT-2026-00001/mark-prepared",
-                Some(serde_json::json!({"prepared_at": "14:30:00"})),
+                "blank branch",
+                serde_json::json!({
+                    "invoice": "ACC-PSINV-2026-00042",
+                    "branch": "   ",
+                    "naming_series": "KOT-",
+                    "date": "2026-07-28",
+                    "items": [{"item_code": "CURRY", "item_name": "Curry", "qty": "1"}]
+                }),
+            ),
+            (
+                "empty naming_series",
+                serde_json::json!({
+                    "invoice": "ACC-PSINV-2026-00042",
+                    "branch": "Peacock - Main",
+                    "naming_series": "",
+                    "date": "2026-07-28",
+                    "items": [{"item_code": "CURRY", "item_name": "Curry", "qty": "1"}]
+                }),
+            ),
+            (
+                "zero qty",
+                serde_json::json!({
+                    "invoice": "ACC-PSINV-2026-00042",
+                    "branch": "Peacock - Main",
+                    "naming_series": "KOT-",
+                    "date": "2026-07-28",
+                    "items": [{"item_code": "CURRY", "item_name": "Curry", "qty": "0"}]
+                }),
+            ),
+            (
+                "empty item_code",
+                serde_json::json!({
+                    "invoice": "ACC-PSINV-2026-00042",
+                    "branch": "Peacock - Main",
+                    "naming_series": "KOT-",
+                    "date": "2026-07-28",
+                    "items": [{"item_code": "", "item_name": "Curry", "qty": "1"}]
+                }),
             ),
         ];
 
-        for (method, uri, payload) in cases {
-            let mut builder = Request::builder().method(method).uri(uri);
-            let body = match payload {
-                Some(json) => {
-                    builder = builder.header("content-type", "application/json");
-                    Body::from(serde_json::to_vec(&json).unwrap())
-                }
-                None => Body::empty(),
-            };
+        for (label, payload) in cases {
+            let response = send(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/kot/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                    .unwrap(),
+            )
+            .await;
 
-            let response = send(builder.body(body).unwrap()).await;
-            let status = response.status();
-            let bytes = response.into_body().collect().await.unwrap().to_bytes();
-            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-
-            assert_eq!(
-                status,
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "{method} {uri} must not fake a success without a database, got {json}"
-            );
-            // The body is the generic internal-error problem document, not our message:
-            // `middleware::error` redacts 5xx detail so an infrastructure fault cannot
-            // describe the server's internals to a caller. Asserted here so a future change
-            // that starts leaking that detail is caught.
-            assert_eq!(json["status"], 500);
-            assert_eq!(json["title"], "Internal Server Error");
-            assert_eq!(json["instance"], uri);
             assert!(
-                json["request_id"].is_string(),
-                "{method} {uri} must stay correlatable to the logs that do hold the reason"
+                response.status().is_client_error(),
+                "{label} must be 4xx, got {}",
+                response.status()
+            );
+            assert_eq!(
+                response.status(),
+                StatusCode::BAD_REQUEST,
+                "{label} must be 400"
             );
         }
+    }
+
+    /// The storage path now succeeds: a valid generate hits Postgres and persists KOT rows.
+    ///
+    /// Mirrors `peacock-api/src/routes/invoices.rs` — one throwaway database per test
+    /// (`TestDb`), not the shared one, because we assert on row counts. The seed that
+    /// `TestDb::new()` runs already inserts the graph KOT routing needs (rooms,
+    /// production units, item groups, items like CURRY/NAAN/CHAI).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn storage_tests_succeed_with_db() {
+        use crate::testing::TestDb;
+
+        let db = TestDb::new().await;
+        let app = crate::app::build_with_storage(Config::default(), db.storage().clone());
+
+        // ---- generate ------------------------------------------------------
+        let payload = serde_json::json!({
+            "invoice": "ACC-PSINV-2026-00042",
+            "branch": "Peacock - Main",
+            "naming_series": "KOT-",
+            "date": "2026-07-28",
+            // qty is a string: `Decimal` on the wire, never a JSON number — same reason
+            // money is (`dto/invoice.rs`).
+            "items": [{"item_code": "CURRY", "item_name": "Chicken Curry", "qty": "2"}]
+        });
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/kot/generate")
+                    .header("content-type", "application/json")
+                    .body(Body::from(serde_json::to_vec(&payload).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "valid generate must succeed with a pool"
+        );
+
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let kots = json["kots"].as_array().expect("kots array");
+        assert!(
+            !kots.is_empty(),
+            "at least one station must have work, got {json}"
+        );
+        assert!(
+            kots.len() >= 1,
+            "expected >=1 KOTs, got {}",
+            kots.len()
+        );
+
+        // Persisted rows — the point: a 201 that writes nowhere would still pass the
+        // response check, but not this one.
+        let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM kots")
+            .fetch_one(db.pool())
+            .await
+            .expect("count kots");
+        assert!(
+            rows >= 1,
+            "kots table must have at least one persisted row, got {rows}"
+        );
+
+        let items: i64 = sqlx::query_scalar("SELECT count(*) FROM kot_items")
+            .fetch_one(db.pool())
+            .await
+            .expect("count kot_items");
+        assert!(items >= 1, "kot_items must be persisted, got {items}");
+
+        // ---- fetch the created KOT by id ---------------------------------
+        let kot_id = kots[0]["id"].as_str().expect("kot has id").to_owned();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/kot/{kot_id}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "get_kot must find the row we just created");
+
+        // ---- pending-kots for its station --------------------------------
+        let production = kots[0]["production"].as_str().unwrap_or("Hot Kitchen");
+        let encoded: String = production
+            .chars()
+            .map(|c| if c == ' ' { "%20".to_owned() } else { c.to_string() })
+            .collect();
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/api/production-units/{encoded}/pending-kots"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let pending: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            pending["kots"].as_array().unwrap().len() >= 1,
+            "pending-kots must list the ticket"
+        );
+
+        // ---- mark-prepared ------------------------------------------------
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(format!("/api/kot/{kot_id}/mark-prepared"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({"prepared_at": "14:30:00"})).unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "mark-prepared must succeed");
     }
 
     #[tokio::test]
@@ -460,7 +611,9 @@ mod tests {
     async fn mark_prepared_accepts_a_null_prepared_at() {
         // `prepared_at: null` is legal — the repository stamps the current time. What is
         // asserted here is that it deserialises rather than being rejected as malformed;
-        // the request then fails on storage, not on the payload.
+        // the request then fails on storage (KOT not found → 404), not on the payload.
+        // Before W1-A this was 500 ("missing database"); now `shared_storage` exists so
+        // the handler reaches the repo and the missing ticket maps to 404.
         let payload = serde_json::json!({ "prepared_at": null });
 
         let response = send(
@@ -473,10 +626,18 @@ mod tests {
         )
         .await;
 
+        // Deserialization succeeded, so this must NOT be 400. With a pool it is 404
+        // (ticket does not exist); without a pool the old 500 would also not be 400,
+        // but that state is no longer expressible.
+        assert_ne!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "a null prepared_at must parse as JSON, not fail validation"
+        );
         assert_eq!(
             response.status(),
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "a null prepared_at must parse, then fail on the missing database"
+            StatusCode::NOT_FOUND,
+            "a null prepared_at must parse, then fail because the KOT does not exist (404), not because the payload is malformed"
         );
     }
 

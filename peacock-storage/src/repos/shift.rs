@@ -4,6 +4,7 @@
 //! and cash threshold tracking for CGST Rule 56 compliance.
 
 use crate::repos::blocking::block_on;
+use crate::repos::to_domain_error;
 use crate::Storage;
 use chrono::{DateTime, NaiveDate, Utc};
 use peacock_core::businessday::BusinessDay;
@@ -98,6 +99,7 @@ impl ShiftRepo for PostgresShiftRepo {
                     business_day,
                 })
             })
+            .map_err(to_domain_error)?
     }
 
     fn get_current_shift(&self, terminal: &TerminalName) -> Result<Option<Shift>> {
@@ -145,6 +147,7 @@ impl ShiftRepo for PostgresShiftRepo {
                     None => Ok(None),
                 }
             })
+            .map_err(to_domain_error)?
     }
 
     fn close_shift(
@@ -239,6 +242,7 @@ impl ShiftRepo for PostgresShiftRepo {
                     cash_threshold_warning: cash_over_threshold,
                 })
             })
+            .map_err(to_domain_error)?
     }
 
     fn get_report(&self, shift_name: &ShiftName) -> Result<ZReport> {
@@ -299,6 +303,7 @@ impl ShiftRepo for PostgresShiftRepo {
                     cash_threshold_warning: cash_over_threshold,
                 })
             })
+            .map_err(to_domain_error)?
     }
 
     fn get(&self, shift_name: &ShiftName) -> Result<Shift> {
@@ -344,6 +349,7 @@ impl ShiftRepo for PostgresShiftRepo {
                     business_day: business_day_label,
                 })
             })
+            .map_err(to_domain_error)?
     }
 
     fn list_shifts(
@@ -422,6 +428,7 @@ impl ShiftRepo for PostgresShiftRepo {
                     })
                     .collect()
             })
+            .map_err(to_domain_error)?
     }
 }
 

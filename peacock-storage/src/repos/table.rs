@@ -72,8 +72,7 @@ impl TableRepo for PostgresTableRepo {
                 }
 
                 q.fetch_all(&self.pool).await
-            })
-            .map_err(StorageError::from)?;
+            })?.map_err(StorageError::from)?;
 
         rows.into_iter()
             .map(|row| {
@@ -158,8 +157,7 @@ impl TableRepo for PostgresTableRepo {
                 .bind(room_str)
                 .fetch_all(&self.pool)
                 .await
-            })
-            .map_err(StorageError::from)?;
+            })?.map_err(StorageError::from)?;
 
         rows.into_iter()
             .map(|row| {
@@ -243,8 +241,7 @@ impl TableRepo for PostgresTableRepo {
                 .bind(name_str)
                 .fetch_optional(&self.pool)
                 .await
-            })
-            .map_err(StorageError::from)?
+            })?.map_err(StorageError::from)?
             .ok_or_else(|| Error::TableNotFound(name.clone()))?;
 
         let name_val: String = row.try_get("name").map_err(StorageError::from)?;
@@ -335,8 +332,7 @@ pub fn update_merged_with(
             .bind(json_value)
             .execute(pool)
             .await
-        })
-        .map_err(StorageError::from)?;
+        })?.map_err(StorageError::from)?;
 
     Ok(())
 }
@@ -386,8 +382,9 @@ pub fn batch_update_merged_with(
             .await
             .map_err(StorageError::from)?;
 
-        Ok(())
-    })
+        Ok::<(), StorageError>(())
+    })??;
+    Ok(())
 }
 
 impl From<String> for StorageError {

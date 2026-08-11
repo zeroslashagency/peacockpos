@@ -167,25 +167,39 @@ async fn list_shifts(
 
 #[cfg(test)]
 mod tests {
-    use crate::app;
     use crate::config::Config;
+    use crate::testing::TestDb;
     use axum::body::Body;
     use axum::http::{header, Request, StatusCode};
+    use axum::Router;
     use http_body_util::BodyExt;
+    use peacock_storage::Storage;
     use tower::ServiceExt;
 
-    async fn send(request: Request<Body>) -> axum::response::Response {
-        app::build(Config::default()).oneshot(request).await.unwrap()
+    async fn test_db() -> TestDb {
+        TestDb::new().await
     }
 
-    #[tokio::test]
-    async fn open_shift_requires_terminal_and_user() {
+    fn app_with_storage(storage: Storage) -> Router {
+        crate::app::build_with_storage(Config::default(), storage)
+    }
+
+    async fn send(app: Router, request: Request<Body>) -> axum::response::Response {
+        app.oneshot(request).await.unwrap()
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn open_shift_valid_returns_200_with_generated_name() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
         let body = serde_json::json!({
             "terminal": "POS-01",
             "opened_by": "waiter@test.com"
         });
 
         let response = send(
+            app,
             Request::builder()
                 .method("POST")
                 .uri("/api/shifts/open")
@@ -195,12 +209,35 @@ mod tests {
         )
         .await;
 
-        // Stub returns 500 for now; Phase 2G will make this 200 or 409
-        assert!(response.status().is_server_error());
+        // Valid open must succeed now that storage is real — 200 (Json) is the
+        // handler's actual status; accept 201 as well per spec tolerance.
+        assert!(
+            response.status() == StatusCode::OK || response.status() == StatusCode::CREATED,
+            "expected 200 or 201, got {}",
+            response.status()
+        );
+
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        let name = json["name"].as_str().expect("shift name must be string");
+        assert!(
+            name.starts_with("SHIFT-"),
+            "shift name {} must start with SHIFT-",
+            name
+        );
+        assert_eq!(json["terminal"], "POS-01");
+        assert_eq!(json["opened_by"], "waiter@test.com");
+        assert!(json["business_day"].as_str().is_some(), "business_day must be present");
+        assert!(json["opened_at"].as_str().is_some(), "opened_at must be present");
+        assert!(json["closed_at"].is_null(), "newly opened shift must have no closed_at");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn open_shift_accepts_explicit_business_day() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
         let body = serde_json::json!({
             "terminal": "POS-01",
             "opened_by": "waiter@test.com",
@@ -208,6 +245,7 @@ mod tests {
         });
 
         let response = send(
+            app,
             Request::builder()
                 .method("POST")
                 .uri("/api/shifts/open")
@@ -217,11 +255,23 @@ mod tests {
         )
         .await;
 
-        assert!(response.status().is_server_error());
+        assert!(
+            response.status() == StatusCode::OK || response.status() == StatusCode::CREATED,
+            "expected 200 or 201, got {}",
+            response.status()
+        );
+
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["business_day"], "2026-07-28");
+        assert!(json["name"].as_str().unwrap().starts_with("SHIFT-"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn open_shift_rejects_invalid_date_format() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
         let body = serde_json::json!({
             "terminal": "POS-01",
             "opened_by": "waiter@test.com",
@@ -229,6 +279,7 @@ mod tests {
         });
 
         let response = send(
+            app,
             Request::builder()
                 .method("POST")
                 .uri("/api/shifts/open")
@@ -246,9 +297,59 @@ mod tests {
         assert!(json["detail"].as_str().unwrap().contains("invalid date format"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn open_shift_duplicate_terminal_returns_409() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
+        let body = serde_json::json!({
+            "terminal": "POS-01",
+            "opened_by": "waiter@test.com"
+        });
+
+        // First open must succeed.
+        let first = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/api/shifts/open")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            first.status() == StatusCode::OK || first.status() == StatusCode::CREATED,
+            "first open must succeed, got {}",
+            first.status()
+        );
+
+        // Second open on same terminal must be a conflict.
+        let second = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/api/shifts/open")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(second.status(), StatusCode::CONFLICT);
+        let bytes = second.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(json["detail"].as_str().unwrap().to_lowercase().contains("already open")
+            || json["detail"].as_str().unwrap().contains("POS-01"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn get_current_shift_requires_terminal_query_param() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
         let response = send(
+            app,
             Request::builder()
                 .uri("/api/shifts/current")
                 .body(Body::empty())
@@ -259,9 +360,55 @@ mod tests {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
-    #[tokio::test]
-    async fn get_current_shift_with_terminal() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_current_shift_returns_404_when_no_open_shift() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
         let response = send(
+            app,
+            Request::builder()
+                .uri("/api/shifts/current?terminal=POS-99")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["status"], 404);
+        assert!(json["detail"].as_str().unwrap().contains("POS-99"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_current_shift_returns_200_when_open() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
+        // Open a shift first.
+        let open_body = serde_json::json!({
+            "terminal": "POS-01",
+            "opened_by": "waiter@test.com"
+        });
+        let open_resp = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/api/shifts/open")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&open_body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+        assert!(open_resp.status().is_success());
+        let open_bytes = open_resp.into_body().collect().await.unwrap().to_bytes();
+        let open_json: serde_json::Value = serde_json::from_slice(&open_bytes).unwrap();
+        let shift_name = open_json["name"].as_str().unwrap().to_owned();
+
+        // Now fetch current.
+        let response = send(
+            app.clone(),
             Request::builder()
                 .uri("/api/shifts/current?terminal=POS-01")
                 .body(Body::empty())
@@ -269,56 +416,154 @@ mod tests {
         )
         .await;
 
-        // Stub returns 500; Phase 2G will make this 200 or 404
-        assert!(response.status().is_server_error());
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["name"], shift_name);
+        assert_eq!(json["terminal"], "POS-01");
+        assert!(json["name"].as_str().unwrap().starts_with("SHIFT-"));
     }
 
-    #[tokio::test]
-    async fn close_shift_accepts_default_cutoff() {
-        let body = serde_json::json!({});
+    #[tokio::test(flavor = "multi_thread")]
+    async fn close_shift_with_default_cutoff_returns_200_with_report() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
 
-        let response = send(
-            Request::builder()
-                .method("POST")
-                .uri("/api/shifts/SHIFT-001/close")
-                .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_vec(&body).unwrap()))
-                .unwrap(),
-        )
-        .await;
-
-        assert!(response.status().is_server_error());
-    }
-
-    #[tokio::test]
-    async fn close_shift_accepts_explicit_cutoff() {
-        let body = serde_json::json!({
-            "cutoff_hour": 4
+        // Open a shift to close.
+        let open_body = serde_json::json!({
+            "terminal": "POS-01",
+            "opened_by": "waiter@test.com"
         });
-
-        let response = send(
+        let open_resp = send(
+            app.clone(),
             Request::builder()
                 .method("POST")
-                .uri("/api/shifts/SHIFT-001/close")
+                .uri("/api/shifts/open")
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .body(Body::from(serde_json::to_vec(&open_body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+        assert!(open_resp.status().is_success());
+        let open_bytes = open_resp.into_body().collect().await.unwrap().to_bytes();
+        let open_json: serde_json::Value = serde_json::from_slice(&open_bytes).unwrap();
+        let shift_name = open_json["name"].as_str().unwrap().to_owned();
+
+        let close_body = serde_json::json!({});
+        let response = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/shifts/{}/close", shift_name))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&close_body).unwrap()))
                 .unwrap(),
         )
         .await;
 
-        assert!(response.status().is_server_error());
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+
+        assert_eq!(json["shift_name"], shift_name);
+        assert_eq!(json["terminal"], "POS-01");
+        // New report must contain Z-report fields with string money.
+        assert!(json["invoice_count"].is_number(), "invoice_count must be number");
+        assert!(json["cash_total"].is_string(), "cash_total must be string");
+        assert!(json["card_total"].is_string(), "card_total must be string");
+        assert!(json["total_revenue"].is_string(), "total_revenue must be string");
+        // With no invoices, totals are zero. Money::ZERO displays as "0".
+        assert_eq!(json["invoice_count"], 0);
+        // Accept either "0" or "0.00" depending on formatting; both are valid zero.
+        let cash = json["cash_total"].as_str().unwrap();
+        assert!(
+            cash == "0" || cash == "0.00" || cash.parse::<rust_decimal::Decimal>().unwrap().is_zero(),
+            "cash_total must be zero, got {}",
+            cash
+        );
+        assert!(json["closed_at"].as_str().is_some());
+        assert!(json["opened_at"].as_str().is_some());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn close_shift_with_explicit_cutoff_returns_200() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
+        let open_body = serde_json::json!({
+            "terminal": "POS-02",
+            "opened_by": "waiter@test.com"
+        });
+        let open_resp = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/api/shifts/open")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&open_body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+        assert!(open_resp.status().is_success());
+        let open_bytes = open_resp.into_body().collect().await.unwrap().to_bytes();
+        let open_json: serde_json::Value = serde_json::from_slice(&open_bytes).unwrap();
+        let shift_name = open_json["name"].as_str().unwrap().to_owned();
+
+        let close_body = serde_json::json!({ "cutoff_hour": 4 });
+        let response = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/shifts/{}/close", shift_name))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&close_body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["shift_name"], shift_name);
+        assert!(json["invoice_count"].is_number());
+        assert!(json["cash_total"].is_string());
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn close_shift_rejects_invalid_cutoff_hour() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
+        // Need a real shift name but validation happens before DB lookup, so any id works.
+        // Use an open shift's name to hit the cutoff validation first.
+        let open_body = serde_json::json!({
+            "terminal": "POS-01",
+            "opened_by": "waiter@test.com"
+        });
+        let open_resp = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/api/shifts/open")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&open_body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+        assert!(open_resp.status().is_success());
+        let open_bytes = open_resp.into_body().collect().await.unwrap().to_bytes();
+        let open_json: serde_json::Value = serde_json::from_slice(&open_bytes).unwrap();
+        let shift_name = open_json["name"].as_str().unwrap().to_owned();
+
         let body = serde_json::json!({
             "cutoff_hour": 25
         });
 
         let response = send(
+            app,
             Request::builder()
                 .method("POST")
-                .uri("/api/shifts/SHIFT-001/close")
+                .uri(format!("/api/shifts/{}/close", shift_name))
                 .header(header::CONTENT_TYPE, "application/json")
                 .body(Body::from(serde_json::to_vec(&body).unwrap()))
                 .unwrap(),
@@ -332,48 +577,106 @@ mod tests {
         assert!(json["detail"].as_str().unwrap().contains("cutoff_hour"));
     }
 
-    #[tokio::test]
-    async fn get_report_extracts_shift_id_from_path() {
-        let response = send(
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_report_returns_report_for_closed_shift() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
+        let open_body = serde_json::json!({
+            "terminal": "POS-01",
+            "opened_by": "waiter@test.com"
+        });
+        let open_resp = send(
+            app.clone(),
             Request::builder()
-                .uri("/api/shifts/SHIFT-001/report")
+                .method("POST")
+                .uri("/api/shifts/open")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&open_body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+        assert!(open_resp.status().is_success());
+        let open_bytes = open_resp.into_body().collect().await.unwrap().to_bytes();
+        let open_json: serde_json::Value = serde_json::from_slice(&open_bytes).unwrap();
+        let shift_name = open_json["name"].as_str().unwrap().to_owned();
+
+        let close_resp = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/shifts/{}/close", shift_name))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&serde_json::json!({})).unwrap()))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(close_resp.status(), StatusCode::OK);
+
+        // Fetch the Z-report.
+        let response = send(
+            app,
+            Request::builder()
+                .uri(format!("/api/shifts/{}/report", shift_name))
                 .body(Body::empty())
                 .unwrap(),
         )
         .await;
 
-        assert!(response.status().is_server_error());
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["shift_name"], shift_name);
+        assert_eq!(json["terminal"], "POS-01");
+        assert!(json["invoice_count"].is_number());
+        assert!(json["cash_total"].is_string());
+        assert!(json["card_total"].is_string());
+        assert!(json["total_revenue"].is_string());
     }
 
-    #[tokio::test]
-    async fn list_shifts_accepts_terminal_filter() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn get_report_returns_404_for_nonexistent_shift() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
         let response = send(
+            app,
             Request::builder()
-                .uri("/api/shifts?terminal=POS-01")
+                .uri("/api/shifts/SHIFT-99999/report")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await;
 
-        assert!(response.status().is_server_error());
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
     }
 
-    #[tokio::test]
-    async fn list_shifts_accepts_pagination() {
-        let response = send(
-            Request::builder()
-                .uri("/api/shifts?limit=10&offset=20")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await;
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_shifts_returns_all_when_no_filters() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
 
-        assert!(response.status().is_server_error());
-    }
+        // Open 3 shifts on distinct terminals.
+        for terminal in ["POS-01", "POS-02", "POS-03"] {
+            let body = serde_json::json!({
+                "terminal": terminal,
+                "opened_by": "waiter@test.com"
+            });
+            let resp = send(
+                app.clone(),
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/shifts/open")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await;
+            assert!(resp.status().is_success(), "failed to open {}", terminal);
+        }
 
-    #[tokio::test]
-    async fn list_shifts_uses_defaults_when_no_params() {
         let response = send(
+            app.clone(),
             Request::builder()
                 .uri("/api/shifts")
                 .body(Body::empty())
@@ -381,43 +684,129 @@ mod tests {
         )
         .await;
 
-        assert!(response.status().is_server_error());
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["count"], 3);
+        assert_eq!(json["shifts"].as_array().unwrap().len(), 3);
     }
 
-    #[tokio::test]
-    async fn all_endpoints_return_problem_json_on_error() {
-        let endpoints = vec![
-            ("POST", "/api/shifts/open", Some(r#"{"terminal":"POS-01","opened_by":"user@test.com"}"#)),
-            ("GET", "/api/shifts/current?terminal=POS-01", None),
-            ("POST", "/api/shifts/SHIFT-001/close", Some(r#"{}"#)),
-            ("GET", "/api/shifts/SHIFT-001/report", None),
-            ("GET", "/api/shifts", None),
-        ];
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_shifts_filters_by_terminal() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
 
-        for (method, uri, body) in endpoints {
-            let mut req = Request::builder().method(method).uri(uri);
-            
-            let response = if let Some(body_str) = body {
-                req = req.header(header::CONTENT_TYPE, "application/json");
-                send(req.body(Body::from(body_str.to_string())).unwrap()).await
-            } else {
-                send(req.body(Body::empty()).unwrap()).await
-            };
-
-            // All stubs return errors; verify they're problem+json
-            if response.status().is_client_error() || response.status().is_server_error() {
-                let content_type = response
-                    .headers()
-                    .get(header::CONTENT_TYPE)
-                    .and_then(|v| v.to_str().ok());
-                assert_eq!(
-                    content_type,
-                    Some("application/problem+json"),
-                    "{} {} must return problem+json",
-                    method,
-                    uri
-                );
-            }
+        for terminal in ["POS-01", "POS-02"] {
+            let body = serde_json::json!({
+                "terminal": terminal,
+                "opened_by": "waiter@test.com"
+            });
+            let resp = send(
+                app.clone(),
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/shifts/open")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await;
+            assert!(resp.status().is_success());
         }
+
+        let response = send(
+            app,
+            Request::builder()
+                .uri("/api/shifts?terminal=POS-01")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["count"], 1);
+        let shifts = json["shifts"].as_array().unwrap();
+        assert_eq!(shifts[0]["terminal"], "POS-01");
+        assert!(shifts[0]["name"].as_str().unwrap().starts_with("SHIFT-"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_shifts_supports_pagination() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
+        for i in 1..=3 {
+            let body = serde_json::json!({
+                "terminal": format!("POS-{:02}", i),
+                "opened_by": "waiter@test.com"
+            });
+            let resp = send(
+                app.clone(),
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/shifts/open")
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                    .unwrap(),
+            )
+            .await;
+            assert!(resp.status().is_success());
+        }
+
+        // Request with limit/offset.
+        let response = send(
+            app.clone(),
+            Request::builder()
+                .uri("/api/shifts?limit=1&offset=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        // The repository limits correctly.
+        assert_eq!(json["count"], 1);
+        assert_eq!(json["shifts"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn list_shifts_uses_defaults_when_no_params() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+
+        let body = serde_json::json!({
+            "terminal": "POS-01",
+            "opened_by": "waiter@test.com"
+        });
+        let resp = send(
+            app.clone(),
+            Request::builder()
+                .method("POST")
+                .uri("/api/shifts/open")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await;
+        assert!(resp.status().is_success());
+
+        let response = send(
+            app,
+            Request::builder()
+                .uri("/api/shifts")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["count"], 1);
+        assert!(json["shifts"][0]["name"].as_str().unwrap().starts_with("SHIFT-"));
     }
 }

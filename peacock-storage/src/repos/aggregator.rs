@@ -132,7 +132,7 @@ impl PgAggregatorRepo {
     /// Idempotent on `aggregator_order_id`: replaying the same webhook returns the existing order.
     pub fn insert_order(&self, order: &NewAggregatorOrder) -> DomainResult<String> {
         block_on(async { self.insert_order_async(order).await })
-            .map_err(crate::repos::to_domain_error)
+            .map_err(crate::repos::to_domain_error)?.map_err(crate::repos::to_domain_error)
             .map(|stored| stored.id)
     }
 
@@ -211,7 +211,7 @@ impl PgAggregatorRepo {
     /// Find an aggregator order by internal ID with its items.
     pub fn find_order(&self, id: &str) -> DomainResult<Option<StoredAggregatorOrder>> {
         block_on(async { self.find_order_async(id).await })
-            .map_err(crate::repos::to_domain_error)
+            .map_err(crate::repos::to_domain_error)?.map_err(crate::repos::to_domain_error)
     }
 
     async fn find_order_async(&self, id: &str) -> StorageResult<Option<StoredAggregatorOrder>> {
@@ -243,7 +243,7 @@ impl PgAggregatorRepo {
                 self.accept_order_async(id, internal_order_id, internal_invoice_id)
                     .await
             })
-            .map_err(crate::repos::to_domain_error)
+            .map_err(crate::repos::to_domain_error)?.map_err(crate::repos::to_domain_error)
     }
 
     async fn accept_order_async(
@@ -317,7 +317,7 @@ impl PgAggregatorRepo {
     /// Reject an aggregator order with a reason.
     pub fn reject_order(&self, id: &str, reason: &str) -> DomainResult<StoredAggregatorOrder> {
         block_on(async { self.reject_order_async(id, reason).await })
-            .map_err(crate::repos::to_domain_error)
+            .map_err(crate::repos::to_domain_error)?.map_err(crate::repos::to_domain_error)
     }
 
     async fn reject_order_async(
@@ -386,7 +386,7 @@ impl PgAggregatorRepo {
         platform: Option<&str>,
     ) -> DomainResult<Vec<StoredSettlement>> {
         block_on(async { self.list_settlements_async(start_date, end_date, platform).await })
-            .map_err(crate::repos::to_domain_error)
+            .map_err(crate::repos::to_domain_error)?.map_err(crate::repos::to_domain_error)
     }
 
     /// Ensure every item code in the aggregator order exists in the catalog.
@@ -397,7 +397,7 @@ impl PgAggregatorRepo {
         items: &[StoredAggregatorOrderItem],
     ) -> DomainResult<()> {
         block_on(async { self.ensure_items_exist_async(items).await })
-            .map_err(crate::repos::to_domain_error)
+            .map_err(crate::repos::to_domain_error)?.map_err(crate::repos::to_domain_error)
     }
 
     async fn ensure_items_exist_async(
@@ -419,7 +419,7 @@ impl PgAggregatorRepo {
     /// Fetch linked aggregator order ids for a settlement (junction table).
     pub fn settlement_order_ids(&self, settlement_id: &str) -> DomainResult<Vec<String>> {
         block_on(async { self.settlement_order_ids_async(settlement_id).await })
-            .map_err(crate::repos::to_domain_error)
+            .map_err(crate::repos::to_domain_error)?.map_err(crate::repos::to_domain_error)
     }
 
     async fn settlement_order_ids_async(

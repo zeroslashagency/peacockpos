@@ -141,7 +141,9 @@ impl MenuRepo for PgMenuRepo {
         room: &RoomName,
         codes: &[ItemCode],
     ) -> Result<HashMap<ItemCode, MenuCourseName>> {
-        block_on(self.courses_for_menu_async(room, codes)).map_err(to_domain_error)
+        block_on(self.courses_for_menu_async(room, codes))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 }
 
@@ -392,22 +394,32 @@ impl PgMenuResolutionRepo {
 
 impl MenuResolutionRepo for PgMenuResolutionRepo {
     fn menu_for_room(&self, room: &RoomName) -> Result<Option<MenuName>> {
-        block_on(self.menu_for_room_async(room)).map_err(to_domain_error)
+        block_on(self.menu_for_room_async(room))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 
     fn menu_for_order_type(&self, order_type: &str) -> Result<Option<MenuName>> {
-        block_on(self.menu_for_order_type_async(order_type)).map_err(to_domain_error)
+        block_on(self.menu_for_order_type_async(order_type))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 
     fn default_menu(&self) -> Result<Option<MenuName>> {
-        block_on(self.default_menu_async()).map_err(to_domain_error)
+        block_on(self.default_menu_async())
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 
     fn menu_items(&self, menu: &MenuName) -> Result<Vec<ResolvedMenuItem>> {
-        block_on(self.menu_items_async(menu)).map_err(to_domain_error)
+        block_on(self.menu_items_async(menu))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 
     fn course_sequences(&self) -> Result<HashMap<MenuCourseName, i32>> {
-        block_on(self.course_sequences_async()).map_err(to_domain_error)
+        block_on(self.course_sequences_async())
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 }

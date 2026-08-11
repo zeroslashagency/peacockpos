@@ -215,12 +215,15 @@ impl PgPriceRepo {
         price_lists: &[PriceListName],
     ) -> Result<Option<(PriceListName, Money)>> {
         block_on(self.item_price_with_fallback_async(item, price_lists, None))
+            .map_err(to_domain_error)?
             .map_err(to_domain_error)
     }
 }
 
 impl PriceRepo for PgPriceRepo {
     fn item_price(&self, item: &ItemCode, price_list: &PriceListName) -> Result<Option<Money>> {
-        block_on(self.item_price_async(item, price_list)).map_err(to_domain_error)
+        block_on(self.item_price_async(item, price_list))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 }

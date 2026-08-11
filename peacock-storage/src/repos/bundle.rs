@@ -199,7 +199,9 @@ impl PgProductBundleRepo {
 impl ProductBundleRepo for PgProductBundleRepo {
     /// Blocking bridge over [`Self::find_by_new_item_code_async`]. See `super::blocking`.
     fn find_by_new_item_code(&self, item: &ItemCode) -> DomainResult<Option<ProductBundle>> {
-        block_on(self.find_by_new_item_code_async(item)).map_err(to_domain_error)
+        block_on(self.find_by_new_item_code_async(item))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 }
 

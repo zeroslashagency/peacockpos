@@ -108,7 +108,9 @@ impl PgItemRepo {
 
 impl ItemRepo for PgItemRepo {
     fn item_groups(&self, codes: &[ItemCode]) -> DomainResult<HashMap<ItemCode, ItemGroupName>> {
-        block_on(self.item_groups_async(codes)).map_err(to_domain_error)
+        block_on(self.item_groups_async(codes))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 }
 
@@ -186,7 +188,9 @@ impl PgProductionRepo {
 
 impl ProductionRepo for PgProductionRepo {
     fn list_for_branch(&self, branch: &BranchName) -> DomainResult<Vec<ProductionUnit>> {
-        block_on(self.list_for_branch_async(branch)).map_err(to_domain_error)
+        block_on(self.list_for_branch_async(branch))
+            .map_err(to_domain_error)?
+            .map_err(to_domain_error)
     }
 }
 

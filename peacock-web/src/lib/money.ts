@@ -100,7 +100,7 @@ export function formatMoney(
   try {
     // Only for grouping, value is integer part which is < 2^53 in practice.
     // If it exceeds safe integer, we do manual.
-    const intNum = Number(absInt);
+    const intNum = Number(absInt); // grouping only; paisa kept as string
     if (Number.isSafeInteger(intNum)) {
       grouped = new Intl.NumberFormat(locale, { useGrouping: true }).format(intNum);
     } else {

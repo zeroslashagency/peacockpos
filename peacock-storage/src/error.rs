@@ -70,6 +70,9 @@ pub enum StorageError {
 
     #[error("unexpected database error: {0}")]
     Sqlx(#[source] sqlx::Error),
+
+    #[error("internal error: {0}")]
+    Internal(String),
 }
 
 impl StorageError {
