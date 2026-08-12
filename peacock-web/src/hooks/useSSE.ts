@@ -78,7 +78,13 @@ function getBaseUrl(explicit?: string): string {
 }
 
 function buildUrl(base: string, opts: UseSSEOptions, lastId: string | null): string {
-  const url = new URL(`${base}/api/events/stream`);
+  const path = "/api/events/stream";
+  const urlStr = base ? `${base}${path}` : path;
+  const origin =
+    typeof window !== "undefined" && window.location.origin
+      ? window.location.origin
+      : "http://localhost:3000";
+  const url = new URL(urlStr, origin);
   if (opts.events && opts.events.length > 0) {
     url.searchParams.set("events", opts.events.join(","));
   }

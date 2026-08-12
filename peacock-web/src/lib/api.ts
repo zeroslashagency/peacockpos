@@ -1042,7 +1042,13 @@ export const aggregatorApi = {
 // ---------------------------------------------------------------------------
 export function sseUrl(baseUrl?: string, params?: { events?: string[]; last_event_id?: string }): string {
   const base = (baseUrl ?? apiBase()).replace(/\/$/, "");
-  const url = new URL(`${base}/api/events/stream`);
+  const path = "/api/events/stream";
+  const urlStr = base ? `${base}${path}` : path;
+  const origin =
+    typeof window !== "undefined" && window.location.origin
+      ? window.location.origin
+      : "http://localhost:3000";
+  const url = new URL(urlStr, origin);
   if (params?.events?.length) url.searchParams.set("events", params.events.join(","));
   if (params?.last_event_id) url.searchParams.set("last_event_id", params.last_event_id);
   return url.toString();
