@@ -381,6 +381,32 @@ mod tests {
     }
 
     #[test]
+    fn forbidden_maps_to_403() {
+        let err = ApiError::forbidden("requires role owner but caller has waiter");
+        assert_eq!(err.status(), StatusCode::FORBIDDEN);
+        assert_eq!(err.kind(), ProblemKind::Forbidden);
+        assert_eq!(err.kind().slug(), "forbidden");
+        assert_eq!(err.kind().title(), "Forbidden");
+        let prob = ProblemDetails::from_error(&err, "https://e.example/errors");
+        assert_eq!(prob.status, 403);
+        assert_eq!(prob.type_uri, "https://e.example/errors/forbidden");
+    }
+
+    #[test]
+    fn forbid_alias_maps_to_403() {
+        let err = ApiError::forbid("x");
+        assert_eq!(err.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn forbidden_status_reverse_maps_to_forbidden() {
+        assert_eq!(
+            ProblemKind::from_status(StatusCode::FORBIDDEN),
+            ProblemKind::Forbidden
+        );
+    }
+
+    #[test]
     fn problem_type_uri_joins_base_and_slug_without_double_slash() {
         let problem = ProblemDetails::new(
             ProblemKind::NotFound,

@@ -83,14 +83,7 @@ async fn summary(
     caller: CallerContext,
     State(state): State<AppState>,
 ) -> ApiResult<Json<DashboardSummary>> {
-    // owner/dev only
-    if !caller.has_role(Role::Owner) && !caller.has_role(Role::Dev) {
-        // has_role is hierarchical, Owner includes Dev? Actually Dev=4 > Owner=3, so Owner has_role Owner true, Dev has_role Owner true via level
-        // But to be explicit, check level
-        if caller.role.level() < Role::Owner.level() {
-            return Err(crate::error::ApiError::forbidden("dashboard requires owner role"));
-        }
-    }
+    crate::require_role!(caller, Role::Owner);
 
     let cutoff_hour = 3u32;
     let now = Utc::now();

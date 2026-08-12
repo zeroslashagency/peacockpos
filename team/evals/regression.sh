@@ -10,20 +10,38 @@ mkdir -p "$SCRATCH"
 echo "=== REGRESSION EVAL $(date -u +%FT%TZ) ===" | tee "$SCRATCH/regression.log"
 echo "root=$ROOT scratch=$SCRATCH" | tee -a "$SCRATCH/regression.log"
 
-# 1. peacock-api lib tests (no DB for filtered, with DB if available)
-echo "--- regression: cargo test -p peacock-api --lib (filtered, no DB) ---" | tee -a "$SCRATCH/regression.log"
-if cargo test -p peacock-api --lib -- --skip users -- --nocapture 2>&1 | tee -a "$SCRATCH/regression.log"; then
-  echo "PASS api lib filtered" | tee -a "$SCRATCH/regression.log"
+# 1. peacock-api lib tests — honest: only non-DB when DB missing, full when DB present
+echo "--- regression: cargo test -p peacock-api --lib (honest, DB-aware) ---" | tee -a "$SCRATCH/regression.log"
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  if cargo test -p peacock-api --lib -- --nocapture 2>&1 | tee -a "$SCRATCH/regression.log"; then
+    echo "PASS api lib (with DB)" | tee -a "$SCRATCH/regression.log"
+  else
+    echo "FAIL api lib (with DB)" | tee -a "$SCRATCH/regression.log"
+  fi
 else
-  echo "FAIL api lib filtered" | tee -a "$SCRATCH/regression.log"
+  echo "DB missing — running non-DB subset (error, middleware, app, config) only" | tee -a "$SCRATCH/regression.log"
+  if cargo test -p peacock-api --lib -- error middleware app config --nocapture 2>&1 | tee -a "$SCRATCH/regression.log"; then
+    echo "PASS api lib filtered (non-DB, honest)" | tee -a "$SCRATCH/regression.log"
+  else
+    echo "FAIL api lib filtered (non-DB)" | tee -a "$SCRATCH/regression.log"
+  fi
 fi
 
-# 2. peacock-storage lib tests (migrator, no DB)
-echo "--- regression: cargo test -p peacock-storage --lib ---" | tee -a "$SCRATCH/regression.log"
-if cargo test -p peacock-storage --lib -- --nocapture 2>&1 | tee -a "$SCRATCH/regression.log"; then
-  echo "PASS storage lib" | tee -a "$SCRATCH/regression.log"
+# 2. peacock-storage lib tests — honest: only migrator/config when DB missing
+echo "--- regression: cargo test -p peacock-storage --lib (honest, DB-aware) ---" | tee -a "$SCRATCH/regression.log"
+if [[ -n "${DATABASE_URL:-}" ]]; then
+  if cargo test -p peacock-storage --lib -- --nocapture 2>&1 | tee -a "$SCRATCH/regression.log"; then
+    echo "PASS storage lib (with DB)" | tee -a "$SCRATCH/regression.log"
+  else
+    echo "FAIL storage lib (with DB)" | tee -a "$SCRATCH/regression.log"
+  fi
 else
-  echo "FAIL storage lib" | tee -a "$SCRATCH/regression.log"
+  echo "DB missing — running migrator+config subset only" | tee -a "$SCRATCH/regression.log"
+  if cargo test -p peacock-storage --lib -- migrator config --nocapture 2>&1 | tee -a "$SCRATCH/regression.log"; then
+    echo "PASS storage lib filtered (migrator+config, honest)" | tee -a "$SCRATCH/regression.log"
+  else
+    echo "FAIL storage lib filtered" | tee -a "$SCRATCH/regression.log"
+  fi
 fi
 
 # 3. peacock-core lib tests

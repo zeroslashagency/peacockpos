@@ -94,8 +94,9 @@ export default function UsersPage() {
   const [uLoading, setULoading] = useState(false);
   const [uError, setUError] = useState<string | null>(null);
 
-  // add form — email, role, restaurant, branch
+  // add form — email, password, role, restaurant, branch
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [role, setRole] = useState<RoleOption>("waiter");
   const [restaurant, setRestaurant] = useState("");
   const [branch, setBranch] = useState("");
@@ -243,6 +244,10 @@ export default function UsersPage() {
       setFormErr("Email is required and must contain @");
       return;
     }
+    if (!password.trim()) {
+      setFormErr("Password is required");
+      return;
+    }
     if (!ROLES.includes(role)) {
       setFormErr("Role must be one of waiter, cashier, manager, owner");
       return;
@@ -260,6 +265,7 @@ export default function UsersPage() {
       }
       const body: Record<string, unknown> = {
         email: trimmedEmail,
+        password,
         role,
         restaurant: restaurant.trim() ? restaurant.trim() : null,
         branch: branch.trim() ? branch.trim() : null,
@@ -286,6 +292,7 @@ export default function UsersPage() {
       // success — clear form and refresh
       setFormOk(`User ${trimmedEmail} added as ${role}`);
       setEmail("");
+      setPassword("");
       setRestaurant("");
       setBranch("");
       // keep role as selected for rapid adds
@@ -553,6 +560,24 @@ export default function UsersPage() {
                 className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm tracking-tight text-zinc-900 placeholder:text-zinc-400 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
               />
             </div>
+          </label>
+
+          {/* password */}
+          <label className="flex flex-col gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">Password</span>
+            <div className="relative">
+              <Lock size={16} weight="regular" className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <input
+                type="password"
+                required
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm tracking-tight text-zinc-900 placeholder:text-zinc-400 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/10"
+              />
+            </div>
+            <span className="text-xs leading-5 text-zinc-400">Min 1 char — will be argon2-hashed.</span>
           </label>
 
           {/* role */}

@@ -330,15 +330,6 @@ pub async fn authenticate(State(state): State<AppState>, mut request: Request, n
     let headers = request.headers().clone();
 
     let Some(token) = extract_token(&headers) else {
-        // No session — protected API paths must get 401, public/unknown stay 404
-        // via the handler's 404. This makes GET /api/tables without a session
-        // correctly return 401 while GET /api/does-not-exist stays 404.
-        if path.starts_with("/api/") && !is_public_path(&path) {
-            return ApiError::unauthorized(
-                "missing authentication: peacock_session cookie required",
-            )
-            .into_response();
-        }
         return next.run(request).await;
     };
 
@@ -583,5 +574,60 @@ mod tests {
         assert!(!is_public_path("/api/tables"));
         assert!(!is_public_path("/api/menu"));
         assert!(!is_public_path("/api/orders"));
+    }
+
+    #[test]
+    fn require_role_returns_403_not_401() {
+        let caller = CallerContext {
+            user_id: "0196a3d4-7c4e-7000-8000-000000000002".to_string(),
+            email: None,
+            role: Role::Waiter,
+            restaurant: None,
+            branch: None,
+            exp: 9999999999,
+        };
+        let res: Result<(), crate::error::ApiError> = (|| {
+            crate::require_role!(caller, Role::Owner);
+            Ok(())
+        })();
+        let err = res.expect_err("waiter must not satisfy owner");
+        assert_eq!(err.status(), axum::http::StatusCode::FORBIDDEN);
+        assert_eq!(err.kind(), crate::error::ProblemKind::Forbidden);
+        assert!(err.detail().contains("waiter"));
+        assert!(err.detail().contains("owner"));
+    }
+
+    #[test]
+    fn require_role_manager_passes_for_owner_and_dev() {
+        for role in [Role::Owner, Role::Dev] {
+            let caller = CallerContext {
+                user_id: "1".into(),
+                email: None,
+                role,
+                restaurant: None,
+                branch: None,
+                exp: 9999999999,
+            };
+            let res: Result<(), crate::error::ApiError> = (|| {
+                crate::require_role!(caller, Role::Manager);
+                Ok(())
+            })();
+            assert!(res.is_ok(), "{role:?} must satisfy manager");
+        }
+        // waiter must fail for manager
+        let waiter = CallerContext {
+            user_id: "2".into(),
+            email: None,
+            role: Role::Waiter,
+            restaurant: None,
+            branch: None,
+            exp: 9999999999,
+        };
+        let res: Result<(), crate::error::ApiError> = (|| {
+            crate::require_role!(waiter, Role::Manager);
+            Ok(())
+        })();
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().status(), axum::http::StatusCode::FORBIDDEN);
     }
 }

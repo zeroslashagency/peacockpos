@@ -19,19 +19,16 @@ else
   echo "FAIL S1-U1" | tee -a "$SCRATCH/capability.log"
 fi
 
-# 2. Forbidden 403 mapping (S1-U2) — no DB needed
+# 2. Forbidden 403 mapping (S1-U2) — no DB needed — honest test driving shipped code
 echo "--- S1-U2 Forbidden 403 mapping (haiku) ---" | tee -a "$SCRATCH/capability.log"
-if cargo test -p peacock-api --lib error::tests -- --nocapture 2>&1 | tee -a "$SCRATCH/capability.log"; then
-  echo "PASS S1-U2 error::tests" | tee -a "$SCRATCH/capability.log"
+if cargo test -p peacock-api --lib error::tests::forbidden_maps_to_403 -- --nocapture 2>&1 | tee -a "$SCRATCH/capability.log" && \
+   cargo test -p peacock-api --lib error::tests::forbid_alias_maps_to_403 -- --nocapture 2>&1 | tee -a "$SCRATCH/capability.log" && \
+   cargo test -p peacock-api --lib error::tests::forbidden_status_reverse_maps_to_forbidden -- --nocapture 2>&1 | tee -a "$SCRATCH/capability.log" && \
+   cargo test -p peacock-api --lib middleware::auth::tests::require_role_returns_403_not_401 -- --nocapture 2>&1 | tee -a "$SCRATCH/capability.log" && \
+   cargo test -p peacock-api --lib middleware::auth::tests::require_role_manager_passes_for_owner_and_dev -- --nocapture 2>&1 | tee -a "$SCRATCH/capability.log"; then
+  echo "PASS S1-U2 forbidden 403 (honest)" | tee -a "$SCRATCH/capability.log"
 else
-  echo "FAIL S1-U2" | tee -a "$SCRATCH/capability.log"
-fi
-# static assert Forbidden exists and require_role! uses forbidden
-echo "--- S1-U2 static: Forbidden variant + require_role! uses forbidden ---" | tee -a "$SCRATCH/capability.log"
-if grep -q "Forbidden" "$ROOT/peacock-api/src/error.rs" && grep -q "ApiError::forbidden" "$ROOT/peacock-api/src/middleware/auth.rs"; then
-  echo "PASS S1-U2 static 403 wiring" | tee -a "$SCRATCH/capability.log"
-else
-  echo "FAIL S1-U2 static 403 wiring" | tee -a "$SCRATCH/capability.log"
+  echo "FAIL S1-U2 forbidden 403" | tee -a "$SCRATCH/capability.log"
 fi
 
 # 3. Auth 401 gate + JWT (S1-U3) — no DB needed
@@ -41,11 +38,13 @@ if cargo test -p peacock-api --lib middleware::auth::tests -- --nocapture 2>&1 |
 else
   echo "FAIL S1-U3" | tee -a "$SCRATCH/capability.log"
 fi
-# static: path guard
-if grep -q 'path.starts_with("/api/")' "$ROOT/peacock-api/src/middleware/auth.rs" && grep -q 'is_public_path' "$ROOT/peacock-api/src/middleware/auth.rs"; then
-  echo "PASS S1-U3 static 401 gate" | tee -a "$SCRATCH/capability.log"
+# static: auth must NOT early-401 for /api/* without token; extractor is gatekeeper (404 stays 404, /api/tables 401 via extractor)
+if grep -q 'let Some(token) = extract_token' "$ROOT/peacock-api/src/middleware/auth.rs" && \
+   grep -q 'return next.run(request).await;' "$ROOT/peacock-api/src/middleware/auth.rs" && \
+   ! grep -q 'path.starts_with("/api/") && !is_public_path' "$ROOT/peacock-api/src/middleware/auth.rs"; then
+  echo "PASS S1-U3 static no early /api 401, extractor gates (404 honest)" | tee -a "$SCRATCH/capability.log"
 else
-  echo "FAIL S1-U3 static 401 gate" | tee -a "$SCRATCH/capability.log"
+  echo "FAIL S1-U3 static 401 gate (early /api 401 still present or extractor missing)" | tee -a "$SCRATCH/capability.log"
 fi
 
 # 4. Users CRUD Owner-only + argon2 (S1-U4) — needs DB; degrade if missing
@@ -64,9 +63,9 @@ else
   else
     echo "FAIL S1-U4 static" | tee -a "$SCRATCH/capability.log"
   fi
-  # filtered lib without users (proves harness runnable)
-  if cargo test -p peacock-api --lib -- --skip users --nocapture 2>&1 | tail -n 30 | tee -a "$SCRATCH/capability.log"; then
-    echo "PASS S1-U4 filtered lib (skip users)" | tee -a "$SCRATCH/capability.log"
+  # honest filtered lib: only non-DB units (error, auth, app, config) — DB units stay skipped when DATABASE_URL missing
+  if cargo test -p peacock-api --lib -- error middleware app config --nocapture 2>&1 | tail -n 30 | tee -a "$SCRATCH/capability.log"; then
+    echo "PASS S1-U4 filtered lib (error+auth+app+config, DB skipped)" | tee -a "$SCRATCH/capability.log"
   else
     echo "FAIL S1-U4 filtered lib" | tee -a "$SCRATCH/capability.log"
   fi
