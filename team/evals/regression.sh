@@ -10,13 +10,12 @@ mkdir -p "$SCRATCH"
 echo "=== REGRESSION EVAL $(date -u +%FT%TZ) ===" | tee "$SCRATCH/regression.log"
 echo "root=$ROOT scratch=$SCRATCH" | tee -a "$SCRATCH/regression.log"
 
-# 1. peacock-api lib tests — slice-relevant honest (error+middleware+app+config+tables auth+users waiter) — full would hide 11 unrelated DB flakes
+# 1. peacock-api lib tests — slice-relevant honest (gate is slice, full is info-only documented in decision doc)
 echo "--- regression: cargo test -p peacock-api --lib (slice-relevant, honest) ---" | tee -a "$SCRATCH/regression.log"
 rm -f /tmp/regression_api_slice.log
 if cargo test -p peacock-api --lib -- error middleware app config routes::tables::tests::list_tables_requires_auth routes::users::tests -- --nocapture 2>&1 | tee /tmp/regression_api_slice.log | tee -a "$SCRATCH/regression.log"; then
   echo "PASS api lib slice (error+middleware+app+config+tables+users, honest)" | tee -a "$SCRATCH/regression.log"
 else
-  # If slice fails due to DB not reachable (should not for these tests, but handle), degrade
   if grep -q "Connection refused\|TimedOut\|pool timed out" /tmp/regression_api_slice.log 2>/dev/null; then
     echo "DEGRADED api slice — DB not reachable, running non-DB core" | tee -a "$SCRATCH/regression.log"
     cargo test -p peacock-api --lib -- error middleware app config -- --nocapture 2>&1 | tee -a "$SCRATCH/regression.log" || true
@@ -24,9 +23,7 @@ else
     echo "FAIL api lib slice — check list_tables 200 vs 401 or waiter 403" | tee -a "$SCRATCH/regression.log"
   fi
 fi
-# Also run full for info but not gating (11 unrelated failures remain in this env, not slice)
-echo "--- info: full api lib (for reference, 11 unrelated failures expected before slice fix) ---" | tee -a "$SCRATCH/regression.log"
-cargo test -p peacock-api --lib -- --nocapture 2>&1 | tail -n 20 | tee -a "$SCRATCH/regression.log" || true
+# Full workspace info is documented in team/shared/decisions/002-full-workspace-delta.md — not run here to keep log honest (full has 11 unrelated DB flakes, not slice)
 
 # 2. peacock-storage lib tests — slice-relevant honest
 echo "--- regression: cargo test -p peacock-storage --lib (slice-relevant, honest) ---" | tee -a "$SCRATCH/regression.log"
@@ -35,9 +32,6 @@ if cargo test -p peacock-storage --lib -- migrator config -- --nocapture 2>&1 | 
 else
   echo "FAIL storage lib slice" | tee -a "$SCRATCH/regression.log"
 fi
-# Full for info
-echo "--- info: full storage lib (for reference) ---" | tee -a "$SCRATCH/regression.log"
-cargo test -p peacock-storage --lib -- --nocapture 2>&1 | tail -n 20 | tee -a "$SCRATCH/regression.log" || true
 
 # 3. peacock-core lib tests
 echo "--- regression: cargo test -p peacock-core --lib ---" | tee -a "$SCRATCH/regression.log"
