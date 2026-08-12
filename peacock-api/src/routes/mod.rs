@@ -9,6 +9,7 @@ use axum::Router;
 use crate::state::AppState;
 
 pub mod aggregators;
+pub mod auth;
 pub mod cogs;
 pub mod health;
 pub mod invoices;
@@ -20,10 +21,12 @@ pub mod menu;
 /// `sqlx` is a dev-dependency of this crate and is not linkable outside tests.
 #[cfg(test)]
 pub mod menu_test_support;
+pub mod dashboard;
 pub mod orders;
 pub mod reports;
 pub mod shifts;
 pub mod tables;
+pub mod users;
 
 /// All application routes, without middleware.
 ///
@@ -32,6 +35,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/health", get(health::health_check))
         .route("/health/ready", get(health::readiness_check))
+        .merge(auth::routes())
         .merge(tables::routes())
         .merge(menu::routes())
         .merge(items::routes())
@@ -42,6 +46,8 @@ pub fn routes() -> Router<AppState> {
         .merge(cogs::routes())
         .merge(reports::routes())
         .merge(orders::routes())
+        .merge(users::routes())
+        .merge(dashboard::routes())
         .merge(crate::events::sse::routes())
 }
 

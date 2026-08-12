@@ -67,10 +67,14 @@ export interface UseSSEReturn {
 
 function getBaseUrl(explicit?: string): string {
   if (explicit) return explicit.replace(/\/$/, "");
-  if (typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL) {
-    return (process.env.NEXT_PUBLIC_API_URL as string).replace(/\/$/, "");
-  }
-  return "http://100.72.103.1:8080";
+  const raw =
+    (typeof process !== "undefined" && (process.env.NEXT_PUBLIC_API_URL as string | undefined)) ||
+    "";
+  const cleaned = raw.replace(/^=+/, "").trim();
+  // Force same-origin (Next.js rewrites → Hetzner) for http:// to avoid https→http mixed-content on Vercel
+  if (cleaned.startsWith("http://")) return "";
+  if (cleaned) return cleaned.replace(/\/$/, "");
+  return "";
 }
 
 function buildUrl(base: string, opts: UseSSEOptions, lastId: string | null): string {
