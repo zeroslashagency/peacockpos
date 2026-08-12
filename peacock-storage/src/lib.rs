@@ -356,6 +356,19 @@ mod tests {
     }
 
     #[test]
+    fn migrator_contains_the_users_migration() {
+        // 012_users.sql must be embedded — without it every auth test gets "relation users does not exist".
+        let versions: Vec<_> = MIGRATOR
+            .iter()
+            .map(|m| (m.version, m.description.to_string()))
+            .collect();
+        assert!(
+            versions.iter().any(|(v, d)| *v == 12 && d == "users"),
+            "012_users.sql missing from the embedded migrator: {versions:?}"
+        );
+    }
+
+    #[test]
     fn migrations_are_uniquely_versioned_and_ordered() {
         let versions: Vec<i64> = MIGRATOR.iter().map(|m| m.version).collect();
         let mut sorted = versions.clone();

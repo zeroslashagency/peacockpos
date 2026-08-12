@@ -31,6 +31,7 @@ pub enum ProblemKind {
     Conflict,
     InvalidInput,
     Unauthorized,
+    Forbidden,
     Internal,
 }
 
@@ -41,6 +42,7 @@ impl ProblemKind {
             Self::AlreadyExists | Self::Conflict => StatusCode::CONFLICT,
             Self::InvalidInput => StatusCode::BAD_REQUEST,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::Forbidden => StatusCode::FORBIDDEN,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -53,6 +55,7 @@ impl ProblemKind {
             Self::Conflict => "conflict",
             Self::InvalidInput => "invalid-input",
             Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
             Self::Internal => "internal-error",
         }
     }
@@ -64,6 +67,7 @@ impl ProblemKind {
             Self::Conflict => "Conflict",
             Self::InvalidInput => "Invalid Input",
             Self::Unauthorized => "Unauthorized",
+            Self::Forbidden => "Forbidden",
             Self::Internal => "Internal Server Error",
         }
     }
@@ -74,6 +78,7 @@ impl ProblemKind {
         match status {
             StatusCode::NOT_FOUND => Self::NotFound,
             StatusCode::UNAUTHORIZED => Self::Unauthorized,
+            StatusCode::FORBIDDEN => Self::Forbidden,
             StatusCode::CONFLICT => Self::Conflict,
             _ if status.is_client_error() => Self::InvalidInput,
             _ => Self::Internal,
@@ -114,6 +119,14 @@ impl ApiError {
 
     pub fn unauthorized(detail: impl Into<String>) -> Self {
         Self::new(ProblemKind::Unauthorized, detail)
+    }
+
+    pub fn forbidden(detail: impl Into<String>) -> Self {
+        Self::new(ProblemKind::Forbidden, detail)
+    }
+
+    pub fn forbid(detail: impl Into<String>) -> Self {
+        Self::forbidden(detail)
     }
 
     pub fn internal(detail: impl Into<String>) -> Self {

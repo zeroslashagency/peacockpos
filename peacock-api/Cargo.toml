@@ -31,9 +31,12 @@ chrono-tz = "0.9"
 rust_decimal = { version = "1.36", features = ["serde-str", "serde-with-str"] }
 peacock-core = { path = "../peacock-core" }
 peacock-storage = { path = "../peacock-storage" }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-native-tls", "postgres", "uuid", "chrono"] }
 hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
+argon2 = "0.5"
+jsonwebtoken = "9.3"
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 async-trait = "0.1"
 thiserror = "1.0"

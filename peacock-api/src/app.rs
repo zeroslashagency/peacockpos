@@ -2,6 +2,10 @@
 //!
 //! Split out from `main.rs` so integration tests can build the exact production stack
 //! without binding a port or reading the environment.
+//!
+//! Routes (including `crate::routes::users` — `POST /api/users`, `GET /api/users`,
+//! `PATCH /api/users/:id` — Owner-only, argon2-hashed `INSERT users`) are composed in
+//! [`crate::routes::routes`] and layered with middleware here.
 
 use axum::Router;
 
@@ -21,7 +25,7 @@ use crate::state::AppState;
 ///
 /// `tower` applies layers in reverse registration order, so the calls in
 /// [`build_with_state`] read innermost-first while requests traverse them bottom-up:
-/// request_id → logging → error → cors → handler.
+/// request_id → logging → error → auth → cors → handler.
 pub fn build_with_storage(config: Config, storage: peacock_storage::Storage) -> Router {
     build_with_state(AppState::with_storage(config, storage))
 }
@@ -55,6 +59,10 @@ pub fn build_with_state(state: AppState) -> Router {
     routes::routes()
         .fallback(middleware::error::not_found)
         .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            middleware::auth::authenticate,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             middleware::error::handle_errors,

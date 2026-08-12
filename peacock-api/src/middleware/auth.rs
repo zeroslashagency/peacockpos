@@ -408,7 +408,7 @@ where
 ///
 /// Hierarchy is `waiter < cashier < manager < owner < dev`; a caller with a
 /// higher role satisfies a lower requirement. On failure returns early with
-/// `Err(ApiError::unauthorized(..))`, so it is used inside handlers returning
+/// `Err(ApiError::forbidden(..))`, so it is used inside handlers returning
 /// [`crate::error::ApiResult`].
 ///
 /// ```ignore
@@ -426,7 +426,7 @@ where
 macro_rules! require_role {
     ($ctx:expr, $required:expr) => {
         if !$ctx.has_role($required) {
-            return Err($crate::error::ApiError::unauthorized(format!(
+            return Err($crate::error::ApiError::forbidden(format!(
                 "requires role {} but caller has {}",
                 $required.as_str(),
                 $ctx.role.as_str()
@@ -435,7 +435,7 @@ macro_rules! require_role {
     };
     ($ctx:expr, $required:expr, $msg:expr) => {
         if !$ctx.has_role($required) {
-            return Err($crate::error::ApiError::unauthorized($msg));
+            return Err($crate::error::ApiError::forbidden($msg));
         }
     };
 }

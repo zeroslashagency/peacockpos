@@ -21,6 +21,8 @@ pub fn allowed_headers() -> Vec<HeaderName> {
         header::AUTHORIZATION,
         HeaderName::from_static("idempotency-key"),
         HeaderName::from_static("x-request-id"),
+        HeaderName::from_static("x-csrf"),
+        HeaderName::from_static("x-csrf-token"),
         crate::middleware::context::X_RESTAURANT,
     ]
 }
@@ -59,8 +61,13 @@ pub fn layer(allowed_origins: &[String]) -> CorsLayer {
         .allow_methods(allowed_methods())
         .allow_headers(allowed_headers())
         .allow_credentials(true)
-        // Lets the browser hand `X-Request-ID` to page scripts for support tickets.
-        .expose_headers(vec![HeaderName::from_static("x-request-id")])
+        // Lets the browser hand `X-Request-ID` to page scripts for support tickets
+        // and `X-CSRF` to the auth client after login.
+        .expose_headers(vec![
+            HeaderName::from_static("x-request-id"),
+            HeaderName::from_static("x-csrf"),
+            HeaderName::from_static("x-csrf-token"),
+        ])
         .max_age(std::time::Duration::from_secs(600))
 }
 
