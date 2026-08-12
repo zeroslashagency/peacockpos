@@ -592,4 +592,67 @@ mod tests {
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn waiter_cannot_create_user_returns_403() {
+        let db = test_db().await;
+        let app = app_with_storage(db.storage().clone());
+        let (owner_cookie, _) = auth_cookie_and_headers(&app).await;
+
+        // owner creates waiter
+        let body = serde_json::json!({
+            "email": "waiter1@peacock.local",
+            "password": "pwd123",
+            "role": "waiter"
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/users")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, owner_cookie.clone())
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED, "owner must create waiter");
+
+        // login as waiter
+        let body = serde_json::json!({"email":"waiter1@peacock.local","password":"pwd123"});
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/auth/login")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "waiter login must succeed");
+        let set_cookie = resp.headers().get(header::SET_COOKIE).unwrap().to_str().unwrap().to_string();
+        let waiter_cookie = set_cookie.split(';').next().unwrap().to_string();
+
+        // waiter tries to create another user -> 403 Forbidden (not 401)
+        let body = serde_json::json!({
+            "email": "hacker@peacock.local",
+            "password": "pwd123",
+            "role": "waiter"
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/users")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, waiter_cookie.clone())
+            .body(Body::from(serde_json::to_vec(&body).unwrap()))
+            .unwrap();
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN, "waiter must get 403, not 401");
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(json["status"], 403);
+        assert!(json["detail"].as_str().unwrap().contains("waiter"));
+        // unauth still 401
+        let req = Request::builder()
+            .uri("/api/users")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "anon must still be 401");
+    }
 }

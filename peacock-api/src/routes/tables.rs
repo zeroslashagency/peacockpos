@@ -19,6 +19,7 @@ use crate::dto::table::{
     TransferRequest, TransferResponse, UnmergeResponse,
 };
 use crate::error::{ApiError, ApiResult};
+use crate::middleware::auth::CallerContext;
 use crate::state::AppState;
 use peacock_core::ids::{RoomName, TableName};
 use peacock_core::merge::{merge_tables_batch, unmerge_tables};
@@ -37,6 +38,7 @@ pub fn routes() -> Router<AppState> {
 ///
 /// List all tables, optionally filtered by room and/or occupancy status.
 async fn list_tables(
+    _caller: CallerContext,
     State(state): State<AppState>,
     Query(query): Query<TableListQuery>,
 ) -> ApiResult<Json<TableListResponse>> {
@@ -59,6 +61,7 @@ async fn list_tables(
 ///
 /// Get a single table by name.
 async fn get_table(
+    _caller: CallerContext,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<TableResponse>> {
@@ -97,6 +100,7 @@ async fn get_table(
 /// - 404: Anchor or target table not found
 /// - 409: Target already merged, occupied, or multiple active orders
 async fn merge_tables(
+    _caller: CallerContext,
     State(state): State<AppState>,
     Path(anchor_id): Path<String>,
     Json(req): Json<MergeRequest>,
@@ -160,6 +164,7 @@ async fn merge_tables(
 ///
 /// Note: Unmerging a table that is not merged is idempotent and succeeds.
 async fn unmerge_table(
+    _caller: CallerContext,
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<Json<UnmergeResponse>> {
@@ -209,6 +214,7 @@ async fn unmerge_table(
 /// - 404: Source or destination table not found
 /// - 409: Source table has no active order
 async fn transfer_order(
+    _caller: CallerContext,
     State(state): State<AppState>,
     Path(from_id): Path<String>,
     Json(req): Json<TransferRequest>,
