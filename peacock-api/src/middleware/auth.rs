@@ -289,8 +289,8 @@ fn is_public_path(path: &str) -> bool {
     if path == "/health" || path == "/health/ready" {
         return true;
     }
-    // Auth endpoints themselves.
-    if path == "/api/auth/login" || path == "/api/auth/logout" {
+    // Auth endpoints themselves (including demo PIN login).
+    if path == "/api/auth/login" || path == "/api/auth/logout" || path == "/api/auth/pin-login" {
         return true;
     }
     // Let CORS preflight through without a session; the browser will then
@@ -571,6 +571,7 @@ mod tests {
         assert!(is_public_path("/health/ready"));
         assert!(is_public_path("/api/auth/login"));
         assert!(is_public_path("/api/auth/logout"));
+        assert!(is_public_path("/api/auth/pin-login"));
         assert!(!is_public_path("/api/tables"));
         assert!(!is_public_path("/api/menu"));
         assert!(!is_public_path("/api/orders"));

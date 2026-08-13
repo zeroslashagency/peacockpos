@@ -193,6 +193,13 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PinLoginRequest {
+    pub pin: String,
+    #[serde(default)]
+    pub email: Option<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct UserInfo {
     pub id: String,
@@ -252,6 +259,7 @@ fn verify_password(hash: &str, password: &str) -> bool {
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/api/auth/login", post(login))
+        .route("/api/auth/pin-login", post(pin_login))
         .route("/api/auth/me", get(me))
         .route("/api/auth/logout", post(logout))
 }
@@ -389,6 +397,143 @@ async fn login(
     );
 
     tracing::info!(email = %db_email, role = %role, "user logged in");
+
+    Ok((StatusCode::OK, headers, Json(body)))
+}
+
+/// POST /api/auth/pin-login  `{pin, email?}` -> 200 + Set-Cookie — DEMO / testing mode
+/// Accepts PIN `1234`, `0000`, `9999`, `1111` or `PEACOCK_DEMO_PIN` env var.
+/// For demo, logs in as `owner@peacock.local` or the provided email if that user exists.
+/// This is intentionally simple for testing — not for production with real PINs.
+async fn pin_login(
+    State(state): State<AppState>,
+    Json(req): Json<PinLoginRequest>,
+) -> ApiResult<(StatusCode, HeaderMap, Json<LoginResponse>)> {
+    let pin = req.pin.trim().to_string();
+    if pin.is_empty() {
+        return Err(ApiError::invalid_input("pin is required"));
+    }
+    if pin.len() < 4 || pin.len() > 6 || !pin.chars().all(|c| c.is_ascii_digit()) {
+        return Err(ApiError::invalid_input("pin must be 4-6 digits"));
+    }
+
+    // Demo PINs — allow env override for testing
+    let demo_pin = std::env::var("PEACOCK_DEMO_PIN").unwrap_or_else(|_| "1234".to_string());
+    let allowed = ["1234", "0000", "9999", "1111", demo_pin.as_str()];
+    if !allowed.contains(&pin.as_str()) {
+        return Err(ApiError::unauthorized("invalid pin"));
+    }
+
+    // For demo, log in as provided email or owner@peacock.local
+    let email = req
+        .email
+        .as_deref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s.contains('@'))
+        .unwrap_or_else(|| "owner@peacock.local".to_string());
+
+    let pool = state.storage().pool();
+    let row = sqlx::query(
+        "SELECT id, email, password_hash, role, restaurant, branch, active \
+         FROM users WHERE email = $1 LIMIT 1",
+    )
+    .bind(&email)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, email = %email, "pin login query failed");
+        ApiError::internal("database error")
+    })?;
+
+    let Some(row) = row else {
+        return Err(ApiError::unauthorized("invalid pin or user"));
+    };
+
+    let id: uuid::Uuid = row
+        .try_get("id")
+        .map_err(|e| ApiError::internal(format!("bad user id: {e}")))?;
+    let db_email: String = row
+        .try_get("email")
+        .map_err(|e| ApiError::internal(format!("bad email: {e}")))?;
+    let role: String = row
+        .try_get("role")
+        .map_err(|e| ApiError::internal(format!("bad role: {e}")))?;
+    let restaurant: Option<String> = row.try_get("restaurant").unwrap_or(None);
+    let branch: Option<String> = row.try_get("branch").unwrap_or(None);
+    let active: bool = row.try_get("active").unwrap_or(true);
+
+    if !active {
+        return Err(ApiError::unauthorized("account is disabled"));
+    }
+
+    // Build JWT + CSRF same as login
+    let csrf = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().timestamp();
+    let claims = Claims {
+        sub: id.to_string(),
+        email: db_email.clone(),
+        role: role.clone(),
+        restaurant: restaurant.clone(),
+        branch: branch.clone(),
+        iat: now as usize,
+        exp: (now + JWT_EXPIRY_SECS) as usize,
+        jti: csrf.clone(),
+    };
+
+    let secret = state.config().jwt_secret.clone();
+    let token = jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
+    )
+    .map_err(|e| {
+        tracing::error!(error = %e, "jwt encode failed for pin login");
+        ApiError::internal("could not create session")
+    })?;
+
+    let user = UserInfo {
+        id: id.to_string(),
+        email: db_email.clone(),
+        role: role.clone(),
+        restaurant: restaurant.clone(),
+        branch: branch.clone(),
+    };
+
+    let body = LoginResponse {
+        message: "ok".to_string(),
+        user,
+        csrf: csrf.clone(),
+        csrf_token: csrf.clone(),
+        token: csrf.clone(),
+    };
+
+    let mut headers = HeaderMap::new();
+    let cookie_val = format!(
+        "{SESSION_COOKIE}={token}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={JWT_EXPIRY_SECS}"
+    );
+    headers.insert(
+        header::SET_COOKIE,
+        cookie_val
+            .parse()
+            .unwrap_or_else(|_| header::HeaderValue::from_static("")),
+    );
+    headers.insert(
+        X_CSRF.clone(),
+        csrf.parse()
+            .unwrap_or_else(|_| header::HeaderValue::from_static("")),
+    );
+    headers.insert(
+        X_CSRF_ALT.clone(),
+        csrf.parse()
+            .unwrap_or_else(|_| header::HeaderValue::from_static("")),
+    );
+    headers.insert(
+        HeaderName::from_static("x-csrf"),
+        csrf.parse()
+            .unwrap_or_else(|_| header::HeaderValue::from_static("")),
+    );
+
+    tracing::info!(email = %db_email, role = %role, pin = %pin, "pin login (demo mode)");
 
     Ok((StatusCode::OK, headers, Json(body)))
 }

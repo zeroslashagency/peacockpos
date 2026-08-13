@@ -1134,6 +1134,44 @@ export function clearCsrfToken() {
 }
 
 export const authApi = {
+  async pinLogin(req: { pin: string; email?: string }): Promise<LoginResponse & { _csrf?: string }> {
+    const url = `${apiBase()}/api/auth/pin-login`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, application/problem+json",
+      },
+      body: JSON.stringify(req),
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const problem = await parseProblem(res);
+      throw new ApiError(problem);
+    }
+    const csrfHeader =
+      res.headers.get("X-CSRF") ||
+      res.headers.get("x-csrf-token") ||
+      res.headers.get("x-csrf") ||
+      res.headers.get("X-CSRF-Token") ||
+      null;
+    let body: LoginResponse | null = null;
+    const text = await res.text();
+    if (text) {
+      try {
+        body = JSON.parse(text) as LoginResponse;
+      } catch {
+        body = {};
+      }
+    } else {
+      body = {};
+    }
+    const csrfFromBody = body?.csrf || body?.token || body?.csrf_token || null;
+    const csrf = csrfHeader || csrfFromBody || null;
+    if (csrf) setCsrfToken(csrf);
+    return { ...(body ?? {}), _csrf: csrf ?? undefined };
+  },
+
   async login(req: LoginRequest): Promise<LoginResponse & { _csrf?: string }> {
     const url = `${apiBase()}/api/auth/login`;
     const res = await fetch(url, {
