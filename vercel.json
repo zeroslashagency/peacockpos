@@ -1,0 +1,6 @@
+{
+  "buildCommand": "cd peacock-web && npm run build",
+  "outputDirectory": "peacock-web/.next",
+  "installCommand": "cd peacock-web && npm install",
+  "framework": "nextjs"
+}
