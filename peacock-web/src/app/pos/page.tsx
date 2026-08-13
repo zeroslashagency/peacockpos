@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MagnifyingGlass,
@@ -28,6 +30,7 @@ import {
   kotApi,
   invoicesApi,
   newIdempotencyKey,
+  ApiError,
   type TableResponse,
   type MenuItemResponse,
   type OrderResponse,
@@ -199,6 +202,7 @@ function CartEmpty() {
 // ---------------------------------------------------------------------------
 
 export default function PosPage() {
+  const router = useRouter();
   // restaurant / customer header
   const [restaurant, setRestaurant] = useState("Peacock Restaurant");
   const [customer, setCustomer] = useState("Walk-in");
@@ -208,6 +212,7 @@ export default function PosPage() {
   const [tables, setTables] = useState<TableResponse[]>([]);
   const [tLoading, setTLoading] = useState(false);
   const [tErr, setTErr] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
   const [selTable, setSelTable] = useState<TableResponse | null>(null);
   const [tFilter, setTFilter] = useState("");
 
@@ -236,12 +241,17 @@ export default function PosPage() {
     try {
       const r = await tablesApi.list();
       setTables(r.tables);
+      setAuthRequired(false);
       if (r.tables.length && restaurant === "Peacock Restaurant") {
         const rc = r.tables[0]?.restaurant;
         if (rc) setRestaurant(rc);
       }
     } catch (e) {
-      setTErr(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      const status = e instanceof ApiError ? (e as ApiError).status : undefined;
+      const is401 = status === 401 || msg.includes("401") || msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("missing authentication");
+      if (is401) setAuthRequired(true);
+      setTErr(msg);
     } finally {
       setTLoading(false);
     }
@@ -255,6 +265,7 @@ export default function PosPage() {
       const room = selTable?.restaurant_room || undefined;
       const resolved = await menuApi.resolve({ room }, { restaurant });
       setMenuMeta({ menu: resolved.menu, strategy: resolved.strategy, fellBack: resolved.fell_back });
+      setAuthRequired(false);
       try {
         const det = await menuApi.getItems(resolved.menu, { restaurant });
         setMenuItems(det.items);
@@ -262,7 +273,11 @@ export default function PosPage() {
         setMenuItems(resolved.items);
       }
     } catch (e) {
-      setMErr(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      const status = e instanceof ApiError ? (e as ApiError).status : undefined;
+      const is401 = status === 401 || msg.includes("401") || msg.toLowerCase().includes("unauthorized") || msg.toLowerCase().includes("missing authentication");
+      if (is401) setAuthRequired(true);
+      setMErr(msg);
       setMenuItems([]);
     } finally {
       setMLoading(false);
@@ -504,6 +519,18 @@ export default function PosPage() {
         </div>
       </div>
 
+      {authRequired && (
+        <div className="flex flex-col gap-3 rounded-[2.5rem] border border-amber-200/60 bg-amber-50 px-6 py-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold tracking-tight text-amber-900">Login required — session missing</p>
+            <p className="mt-1 text-xs leading-5 text-amber-800">POS now requires auth (tables 401 via CallerContext). Please sign in to load floor &amp; menu.</p>
+          </div>
+          <Link href="/login" className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-semibold tracking-tight text-white shadow-sm hover:bg-zinc-800">
+            Go to Login →
+          </Link>
+        </div>
+      )}
+
       {/* Header filters — label above input gap-2 */}
       <section className="rounded-[2.5rem] border border-slate-200/50 bg-white p-6 sm:p-8 shadow-[0_20px_40px_-15px_rgba(0,0,0,0.05)]">
         <div className="grid gap-6 sm:grid-cols-3">
@@ -525,6 +552,14 @@ export default function PosPage() {
             {mErr && (
               <span className="text-xs font-medium leading-5 text-red-600">
                 Couldn’t resolve menu — {mErr}
+                {(mErr.toLowerCase().includes("unauthorized") || mErr.includes("401") || mErr.toLowerCase().includes("missing authentication")) && (
+                  <>
+                    {" — "}
+                    <Link href="/login" className="font-semibold underline decoration-red-300 underline-offset-4 hover:decoration-red-600">
+                      Login
+                    </Link>
+                  </>
+                )}
               </span>
             )}
           </label>
@@ -684,12 +719,18 @@ export default function PosPage() {
                 <div className="rounded-2xl border border-slate-200/50 bg-zinc-50 px-6 py-8 text-center">
                   <p className="text-sm font-medium tracking-tight text-zinc-900">Couldn’t load menu</p>
                   <p className="mx-auto mt-1 max-w-[42ch] text-sm leading-6 text-zinc-500">{mErr}</p>
-                  <button
-                    onClick={fetchMenu}
-                    className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold tracking-tight text-zinc-900 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-900"
-                  >
-                    Retry
-                  </button>
+                  {(mErr.toLowerCase().includes("unauthorized") || mErr.includes("401") || mErr.toLowerCase().includes("missing authentication")) ? (
+                    <Link href="/login" className="mt-4 inline-flex items-center gap-1.5 rounded-full bg-zinc-900 px-5 py-2 text-xs font-semibold tracking-tight text-white hover:bg-zinc-800">
+                      Go to Login →
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={fetchMenu}
+                      className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold tracking-tight text-zinc-900 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-900"
+                    >
+                      Retry
+                    </button>
+                  )}
                 </div>
               ) : filteredMenu.length === 0 ? (
                 <MenuEmpty q={q} course={course} hasRestaurant={!!restaurant} />
@@ -816,12 +857,18 @@ export default function PosPage() {
                 {tErr && (
                   <div className="mt-3 flex items-center gap-2 text-xs leading-5">
                     <span className="font-medium tracking-tight text-red-600">Couldn’t load floor — {tErr}</span>
-                    <button
-                      onClick={fetchTables}
-                      className="font-semibold tracking-tight text-zinc-900 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-900"
-                    >
-                      Retry
-                    </button>
+                    {(tErr.toLowerCase().includes("unauthorized") || tErr.includes("401") || tErr.toLowerCase().includes("missing authentication")) ? (
+                      <Link href="/login" className="font-semibold tracking-tight text-amber-700 underline decoration-amber-300 underline-offset-4 hover:decoration-amber-600">
+                        Login
+                      </Link>
+                    ) : (
+                      <button
+                        onClick={fetchTables}
+                        className="font-semibold tracking-tight text-zinc-900 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-900"
+                      >
+                        Retry
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
